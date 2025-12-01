@@ -1,13 +1,15 @@
 from manim import *
 import numpy as np
 
-class ValueIterationFinal(Scene):
+
+class ValueIterationGeneral(Scene):
     def construct(self):
-        # --- 0. 全局配置 ---
-        self.gamma = 0.9
-        self.grid_size = 3
-        self.cell_size = 1.5
-        self.grid_spacing = 1.6
+        # --- 0. 全局配置 (5x5) ---
+        config.max_files_cached = 500 
+        self.gamma = 0.9        # 折扣因子
+        self.grid_size = 5      # 5x5 网格
+        self.cell_size = 1.0    # 格子尺寸
+        self.grid_spacing = 1.1 # 格子间距
         
         # --- 1. 播放理论介绍 ---
         self.play_intro()
@@ -16,107 +18,119 @@ class ValueIterationFinal(Scene):
         self.play_grid_world()
 
     def play_intro(self):
-        """展示公式和参数的介绍场景"""
+        """展示更加 General 的概念，但保留底部参数栏"""
         self.title = Text("Value Iteration", font_size=48, color=BLUE).to_edge(UP)
         self.play(Write(self.title))
         
+        concept_text = Text("Objective: Maximize Expected Discounted Return", font_size=32).shift(UP * 1.5)
+        
+        series_eq = MathTex(
+            r"V(s) = R_t + \gamma R_{t+1} + \gamma^2 R_{t+2} + \dots", 
+            font_size=36, color=YELLOW
+        ).next_to(concept_text, DOWN, buff=0.3)
+        
         bellman_eq = MathTex(
-            r"V_{k+1}(s) = \max_{a} \sum_{s', r} p(s', r | s, a) [r + \gamma V_k(s')]",
+            r"V_{k+1}(s) \leftarrow \max_{a} [ R(s, a, s') + \gamma V_k(s') ]",
             font_size=36
-        ).shift(UP * 1)
+        ).next_to(series_eq, DOWN, buff=1.0)
         
-        explanation = VGroup(
-            Text("Core Idea:", font_size=24, color=YELLOW),
-            Text("Iteratively propagate future rewards", font_size=24),
-            Text("back to current state via discount factor γ", font_size=24)
-        ).arrange(DOWN, aligned_edge=LEFT).next_to(bellman_eq, DOWN, buff=0.5)
+        params_content = VGroup(
+            MathTex(r"\gamma = 0.9", color=YELLOW),
+            Text("| Enter Goal:+1.0  Enter Trap:-1.0  Enter Mud:-0.5  Enter Normal:-0.04", font_size=20, color=GREY_B)
+        ).arrange(RIGHT, buff=0.3)
         
-        # 【修改点 1】在介绍中加入 Mud (泥潭) 的参数说明
-        params = VGroup(
-            MathTex(r"\gamma (Discount\ Factor) = 0.9", color=ORANGE),
-            # 这里增加了 Mud: -0.5
-            Text("Goal: +1.0 | Trap: -1.0 | Mud: -0.5 | Step: -0.04", font_size=24, color=WHITE)
-        ).arrange(DOWN).to_edge(DOWN, buff=1)
+        params = params_content.to_edge(DOWN, buff=1)
 
+        self.play(FadeIn(concept_text), Write(series_eq))
+        self.wait(1)
         self.play(Write(bellman_eq))
-        self.play(FadeIn(explanation))
         self.play(Write(params))
-        self.wait(3) # 多留一点时间给观众看新参数
+        self.wait(2)
         
-        # 清理屏幕
         self.play(
+            FadeOut(concept_text),
+            FadeOut(series_eq),
             FadeOut(bellman_eq), 
-            FadeOut(explanation), 
             FadeOut(params),
             self.title.animate.scale(0.8) 
         )
 
-    def get_heatmap_color(self, value):
-        """根据价值大小返回动态热力图颜色"""
-        COLOR_NEUTRAL = BLACK     
-        COLOR_POS = GREEN         
-        COLOR_NEG = RED           
-        
-        if value > 0:
-            alpha = min(value, 1.0) 
-            return interpolate_color(COLOR_NEUTRAL, COLOR_POS, alpha)
-        elif value < 0:
-            alpha = min(abs(value), 1.0)
-            return interpolate_color(COLOR_NEUTRAL, COLOR_NEG, alpha)
-        else:
-            return COLOR_NEUTRAL
+    def get_static_color(self, reward):
+        """根据地形类型返回固定颜色"""
+        if reward == 1.0: return TEAL_E      # Goal
+        if reward == -1.0: return MAROON_E   # Trap
+        if reward == -0.5: return ORANGE     # Mud
+        return DARK_GRAY                     # Normal path
 
     def play_grid_world(self):
         """主演示流程"""
         
-        # --- A. 环境初始化 (打破对称性) ---
-        # 【修改点 2】修改 rewards 矩阵，(0, 1) 设置为 -0.5
+        # --- A. 环境初始化 (不对称 & 唯一路径设计) ---
+        # 视觉布局：Row 0 是最上方，Row 4 是最下方
+        # Goal (4,4) 右下角, Start (0,0) 左上角
+        
+        # 只有一条蜿蜒的最优路径，其他路被 Trap 封死或被 Mud 减分
         rewards = np.array([
-            [-0.04, -0.5, -0.04],   # 中间改为 -0.5 (泥潭)
-            [-0.04, -1.0,  -0.04],  # 中间是 -1.0 (陷阱)
-            [-0.04, -0.04,  1.0]    # 右下是 +1.0 (目标)
+            # Col 0,   1,     2,     3,     4
+            [-0.04, -0.04, -0.04, -0.50, -1.00], # Row 0 (Top) Start at (0,0)
+            [-0.04, -1.00, -0.04, -1.00, -1.00], # Row 1 (Trap Wall)
+            [-0.04, -0.50, -0.04, -0.04, -0.04], # Row 2 (Mud in middle)
+            [-1.00, -1.00, -1.00, -1.00, -0.04], # Row 3 (Trap Wall)
+            [-1.00, -0.04, -0.04, -0.04,  1.00]  # Row 4 (Bottom) Goal at (4,4)
         ])
         
+        # 对应矩阵索引
+        goal_pos_idx = (4, 4) 
+        start_pos_idx = (0, 0)
+        
+        # 演示计算的目标格子：Goal 上方的格子 (3, 4)
+        # Row 3, Col 4. 它是 Normal (-0.04)，下方是 Goal。
+        demo_target_pos = (3, 4) 
+
         values = np.zeros((self.grid_size, self.grid_size))
-        values[2, 2] = 1.0 
-        values[1, 1] = -1.0
         
         # --- B. 构建初始网格 ---
         grid_group = VGroup()
         self.value_trackers = {} 
         self.cells = {} 
         
+        # 计算中心偏移量
+        center_offset_x = (self.grid_size - 1) * self.grid_spacing / 2
+        center_offset_y = (self.grid_size - 1) * self.grid_spacing / 2
+
         for i in range(self.grid_size):
             for j in range(self.grid_size):
-                x = (j - 1) * self.grid_spacing
-                y = (1 - i) * self.grid_spacing
+                # 坐标映射修改：i=0(Top) -> Positive Y, i=4(Bottom) -> Negative Y
+                x = j * self.grid_spacing - center_offset_x
+                y = (self.grid_size - 1 - i) * self.grid_spacing - center_offset_y
                 pos = np.array([x, y, 0])
                 
-                # 初始颜色
-                fill_color = self.get_heatmap_color(values[i, j])
+                fill_color = self.get_static_color(rewards[i, j])
                 
-                # 【修改点 3】特殊的格子给予特殊的初始颜色
-                if rewards[i, j] == 1.0: 
-                    fill_color = GREEN_E 
-                elif rewards[i, j] == -1.0: 
-                    fill_color = RED_E
-                elif rewards[i, j] == -0.5: # 泥潭显示为橙色
-                    fill_color = ORANGE
-
-                cell = Square(side_length=self.cell_size, color=WHITE, fill_color=fill_color, fill_opacity=0.6)
+                cell = Square(side_length=self.cell_size, color=WHITE, fill_color=fill_color, fill_opacity=0.8)
                 cell.move_to(pos)
                 self.cells[(i, j)] = cell 
                 
-                # 奖励标签
-                if rewards[i, j] == 1.0: r_text = "+1.0"
-                elif rewards[i, j] == -1.0: r_text = "-1.0"
-                elif rewards[i, j] == -0.5: r_text = "-0.5" # 显示泥潭数值
-                else: r_text = "-0.04"
+                # Label 优化：解决看不清和拥挤问题
+                if rewards[i, j] == 1.0: 
+                    r_text = "Goal\n+1.0"
+                    label_color = YELLOW
+                elif rewards[i, j] == -1.0: 
+                    r_text = "Trap\n-1.0"
+                    label_color = WHITE # 红色背景用白色字
+                elif rewards[i, j] == -0.5: 
+                    r_text = "Mud\n-0.5"
+                    label_color = WHITE # 橙色背景用白色字
+                else: 
+                    # --- 2. 修改显示内容和颜色 ---
+                    r_text = "-0.04"
+                    label_color = WHITE 
                 
-                reward_label = Text(r_text, font_size=16, color=YELLOW)
-                reward_label.move_to(pos + np.array([-self.cell_size/2 + 0.35, self.cell_size/2 - 0.2, 0]))
+                # 缩小字体 (9)，稍微上调位置 (0.32) 以防拥挤
+                reward_label = Text(r_text, font_size=9, line_spacing=0.8, color=label_color)
+                reward_label.move_to(pos + np.array([0, 0.32, 0]))
 
-                # 数值追踪器
+                # 价值数字
                 tracker = ValueTracker(values[i, j])
                 self.value_trackers[(i, j)] = tracker
                 
@@ -124,10 +138,11 @@ class ValueIterationFinal(Scene):
                     values[i, j], 
                     num_decimal_places=2, 
                     show_ellipsis=False,
-                    font_size=30,
+                    font_size=16, 
                     color=WHITE
                 )
-                val_num.move_to(pos)
+                val_num.move_to(pos + np.array([0, -0.2, 0]))
+                
                 val_num.add_updater(lambda m, r=i, c=j: m.set_value(self.value_trackers[(r, c)].get_value()))
                 
                 grid_group.add(cell, reward_label, val_num)
@@ -137,323 +152,380 @@ class ValueIterationFinal(Scene):
         
         # --- C. 微观演示 (One-Step Lookahead) ---
         self.play(FadeOut(self.title)) 
-        self.visualize_one_step(grid_group, values, rewards)
+        
+        # 演示 Goal 上方的格子
+        self.visualize_one_step(grid_group, values, rewards, target_pos=demo_target_pos)
         
         # --- D. 布局转换 ---
-        self.play(grid_group.animate.scale(0.8).to_edge(LEFT, buff=1))
+        self.play(
+            grid_group.animate.scale(0.8).move_to(LEFT * 3.5)
+        )
         
-        # 创建坐标轴
+        # 设置坐标轴
         ax = Axes(
-            x_range=[0, 7, 1],       
-            y_range=[0, 1.2, 0.5],   
-            x_length=5,              
-            y_length=4,
-            axis_config={"color": BLUE},
-            x_axis_config={"numbers_to_include": range(0, 8)},
+            x_range=[0, 40, 10],       
+            y_range=[0, 1.2, 0.2],    
+            x_length=4.0,              
+            y_length=3.0,
+            axis_config={"color": BLUE, "include_numbers": True, "font_size": 18},
             tips=False
-        ).to_edge(RIGHT, buff=1)
+        ).move_to(RIGHT * 3.2)
         
-        x_label = ax.get_x_axis_label("Iteration", edge=DOWN, direction=DOWN, buff=0.2).scale(0.6)
-        y_label = ax.get_y_axis_label("Max Error", edge=LEFT, direction=LEFT, buff=0.2).scale(0.6).rotate(90*DEGREES)
-        
-        plot_group = VGroup(ax, x_label, y_label)
+        epsilon = 0.1
+        threshold_line = DashedLine(
+            start=ax.c2p(0, epsilon), 
+            end=ax.c2p(40, epsilon), 
+            color=RED
+        )
+        threshold_label = Text(f"Threshold: {epsilon}", font_size=16, color=RED).next_to(threshold_line, UP, buff=0.05).set_x(ax.c2p(20,0)[0])
+
+        x_lbl = ax.get_x_axis_label("Iteration").scale(0.5)
+        y_lbl = ax.get_y_axis_label("Max Error").scale(0.5).rotate(90*DEGREES).next_to(ax, LEFT, buff=0.1)
+
+        plot_group = VGroup(ax, x_lbl, y_lbl, threshold_line, threshold_label)
         self.play(Create(plot_group))
         
-        iter_label = Text("Iteration: 0", font_size=24).next_to(grid_group, UP)
-        self.play(Write(iter_label))
+        iter_label = Text("Iteration: 0", font_size=24).next_to(ax, UP, buff=0.5).shift(LEFT * 1.0)
+        error_label = Text("Max Error: N/A", font_size=24, color=YELLOW).next_to(iter_label, RIGHT, buff=0.5)
+        
+        self.play(Write(iter_label), Write(error_label))
         
         # --- E. 宏观演示: 价值迭代主循环 ---
-        max_iterations = 6 
+        max_iterations = 40 
         actions = [(-1, 0), (1, 0), (0, -1), (0, 1)] 
-        goal_pos = (2, 2) 
         last_dot = None 
+        converged = False
 
         for k in range(max_iterations):
             new_values = values.copy()
-            anim_data = [] 
+            anim_entries = [] 
             
-            self.play(Transform(iter_label, Text(f"Iteration: {k+1}", font_size=24).move_to(iter_label)), run_time=0.5)
+            if k < 10:                 
+                current_run_time = 1.5 
+                current_lag = 0.08      
+            else:
+                current_run_time = 0.2
+                current_lag = 0.0
+            
+            self.play(Transform(iter_label, Text(f"Iteration: {k+1}", font_size=24).move_to(iter_label)), run_time=0.1)
             
             for i in range(self.grid_size):
                 for j in range(self.grid_size):
-                    # 跳过固定格子 (现在包括泥潭吗？不，泥潭的值是会变化的，只有终点和陷阱通常视为吸收态不更新)
-                    # 注意：通常 Value Iteration 中，如果陷阱是 Terminal State，则不更新。
-                    # 泥潭 (-0.5) 只是 step cost 高，并不是终点，所以它应该参与更新！
-                    # 这里只跳过 1.0 和 -1.0
-                    if rewards[i, j] == 1.0 or rewards[i, j] == -1.0:
-                        continue
                     
                     q_values = []
+                    
                     for di, dj in actions:
                         ni, nj = i + di, j + dj
+                        # Infinite Horizon 逻辑
                         if 0 <= ni < self.grid_size and 0 <= nj < self.grid_size:
-                            v_next = values[ni, nj]
+                            r_next = rewards[ni, nj]
+                            v_next = values[ni, nj] 
                         else:
+                            r_next = rewards[i, j]
                             v_next = values[i, j]
                         
-                        # Bellman Update
-                        q = rewards[i, j] + self.gamma * v_next
+                        q = r_next + self.gamma * v_next
                         q_values.append(q)
                     
                     new_values[i, j] = max(q_values)
                     
-                    # 准备动画
-                    dist = abs(i - goal_pos[0]) + abs(j - goal_pos[1])
-                    val_anim = self.value_trackers[(i, j)].animate.set_value(new_values[i, j])
+                    change_amount = abs(new_values[i, j] - values[i, j])
                     
-                    # 热力图颜色更新 (泥潭格子也会随价值变化颜色，这没问题，或者你可以保持它为橙色)
-                    # 如果希望泥潭保持橙色以示区别，可以加个判断。
-                    # 但为了展示价值传播，让它变色效果更好。
-                    # 不过为了视觉清晰，我们保留 -0.5 格子的特殊性可能更好？
-                    # 权衡之下：让它参与热力图变化能体现出它“虽然是坑但离终点近”的价值属性。
-                    target_color = self.get_heatmap_color(new_values[i, j])
-                    
-                    # 如果你非常希望泥潭一直显示橙色，可以取消下面这行对泥潭的颜色更新
-                    # if rewards[i, j] != -0.5: 
-                    color_anim = self.cells[(i, j)].animate.set_fill(target_color, opacity=0.6)
-                    
-                    group_anim = AnimationGroup(val_anim, color_anim)
-                    anim_data.append((dist, group_anim))
+                    if change_amount > 0.001:
+                        # 距离计算：现在目标在 (4,4)
+                        dist_to_goal = abs(i - goal_pos_idx[0]) + abs(j - goal_pos_idx[1])
+                        val_anim = self.value_trackers[(i, j)].animate.set_value(new_values[i, j])
+                        anim_entries.append((dist_to_goal, val_anim))
             
-            # 绘制图表
+            anim_entries.sort(key=lambda x: x[0])
+            anim_data = [x[1] for x in anim_entries]
+
             diff_matrix = np.abs(new_values - values)
             max_delta = np.max(diff_matrix)
             
-            current_point = ax.c2p(k + 1, max_delta)
-            new_dot = Dot(current_point, color=YELLOW, radius=0.08)
-            plot_anims = [FadeIn(new_dot, scale=0.5)]
+            new_error_label = Text(f"Max Error: {max_delta:.4f}", font_size=24, color=YELLOW).move_to(error_label)
+            if max_delta < epsilon:
+                new_error_label.set_color(GREEN)
             
-            if last_dot is not None:
-                line = Line(last_dot.get_center(), new_dot.get_center(), color=YELLOW, stroke_width=3)
-                plot_anims.append(Create(line))
+            self.play(Transform(error_label, new_error_label), run_time=0.1)
             
-            # 播放动画
+            plot_y = max_delta if max_delta <= 1.2 else 1.2
+            current_point = ax.c2p(k + 1, plot_y)
+            new_dot = Dot(current_point, color=YELLOW, radius=0.06)
+            
+            if anim_data:
+                self.play(
+                    LaggedStart(*anim_data, lag_ratio=current_lag),
+                    Create(new_dot),
+                    run_time=current_run_time
+                )
+            else:
+                self.play(Create(new_dot), run_time=current_run_time)
+            
+            if last_dot:
+                self.add(Line(last_dot.get_center(), new_dot.get_center(), color=YELLOW, stroke_width=2))
+            
             values = new_values
-            anim_data.sort(key=lambda x: x[0])
-            sorted_grid_anims = [item[1] for item in anim_data]
-            
-            self.play(
-                LaggedStart(*sorted_grid_anims, lag_ratio=0.15), 
-                AnimationGroup(*plot_anims),                     
-                run_time=1.5
-            )
-            
             last_dot = new_dot
+            
+            if max_delta < epsilon:
+                converged = True
+                break
 
-        # 收敛标记
-        converged_label = Text("Converged!", color=GREEN, font_size=36).next_to(last_dot, UP)
+        if converged:
+            converged_label = Text(f"Converged!", color=GREEN, font_size=24) 
+        else:
+            converged_label = Text("Max Iter Reached", color=ORANGE, font_size=24)
+        
+        plot_ur = ax.c2p(40, 1.2)
+        converged_label.move_to(plot_ur + np.array([-1.5, -0.5, 0]))
+
         self.play(Write(converged_label))
         self.wait(1)
 
-        # --- F. 策略可视化 ---
+        # --- G. 替换机器人寻路为：全局最优策略展示 (Arrows) ---
         for mobj in grid_group:
             if isinstance(mobj, DecimalNumber):
                 mobj.clear_updaters()
 
-        self.play(grid_group.animate.set_opacity(0.3))
+        # 调用新方法展示每个格子的箭头
+        self.show_optimal_policy(values, rewards)
         
-        arrows = VGroup()
-        action_vectors = [UP, DOWN, LEFT, RIGHT]
-        action_deltas = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-
-        for i in range(self.grid_size):
-            for j in range(self.grid_size):
-                if rewards[i, j] == 1.0 or rewards[i, j] == -1.0:
-                    continue
-                
-                best_val = -np.inf
-                best_vec = UP
-                pos = self.cells[(i, j)].get_center()
-                
-                for vec, (di, dj) in zip(action_vectors, action_deltas):
-                    ni, nj = i + di, j + dj
-                    if 0 <= ni < self.grid_size and 0 <= nj < self.grid_size:
-                        val = values[ni, nj]
-                    else:
-                        val = values[i, j]
-                    
-                    if val > best_val:
-                        best_val = val
-                        best_vec = vec
-                
-                arrow = Arrow(
-                    start=ORIGIN, end=best_vec * 0.4, 
-                    buff=0, color=GOLD, stroke_width=6,
-                    max_tip_length_to_length_ratio=0.4
-                ).move_to(pos)
-                arrows.add(arrow)
-        
-        self.play(Create(arrows), run_time=2)
-        self.wait(0.5)
-
-        # --- G. 智能体实战 ---
-        self.simulate_agent(values, start_pos=(0, 0))
-        
-        final_text = Text("Optimal Path Found", color=GREEN, font_size=36).to_edge(DOWN)
+        final_text = Text("Optimal Policy: Visualized by Arrows", color=GREEN, font_size=32).to_edge(DOWN)
         self.play(FadeIn(final_text))
         self.wait(3)
 
-    def visualize_one_step(self, grid_group, values, rewards):
-        """可视化单步前瞻"""
-        r, c = 1, 2 
-        target_cell = self.cells[(r, c)]
+    def show_optimal_policy(self, values, rewards):
+        """在每个格子上绘制箭头，指示最优策略方向。若有多个最优方向，则绘制多个箭头。"""
+        arrows_group = VGroup()
         
-        self.play(grid_group.animate.set_opacity(0.15))
+        # 动作对应向量: Up, Down, Left, Right
+        # 这里的向量是 Manim 屏幕坐标系的向量
+        directions = [UP, DOWN, LEFT, RIGHT]
+        # 对应的矩阵索引变化 (di, dj)
+        # i是行(Row), j是列(Col)。Row 0是Top, Row 4是Bottom。
+        # 所以 UP 是 Row-1, DOWN 是 Row+1
+        actions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
         
-        highlight_box = Square(side_length=self.cell_size, color=YELLOW, stroke_width=8, fill_opacity=0)
-        highlight_box.move_to(target_cell.get_center())
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                # 如果是 Goal，不画箭头，或者画一个圆点表示 Stay
+                if rewards[i, j] == 1.0:
+                    dot = Dot(color=YELLOW).move_to(self.cells[(i, j)].get_center())
+                    arrows_group.add(dot)
+                    continue
+                
+                # 如果是 Trap，策略可能是尽快离开，但通常 Trap 周围的价值很低
+                # 我们依然计算其最优策略（虽然 Agent 尽量不会走到这）
+                
+                q_values = []
+                for di, dj in actions:
+                    ni, nj = i + di, j + dj
+                    
+                    # 边界检查
+                    if 0 <= ni < self.grid_size and 0 <= nj < self.grid_size:
+                        r_next = rewards[ni, nj]
+                        v_next = values[ni, nj]
+                    else:
+                        r_next = rewards[i, j]
+                        v_next = values[i, j]
+                        
+                    q = r_next + self.gamma * v_next
+                    q_values.append(q)
+                
+                max_q = max(q_values)
+                
+                # 找出所有等于 max_q 的方向（允许微小误差）
+                best_indices = [idx for idx, q in enumerate(q_values) if abs(q - max_q) < 0.0001]
+                
+                # 在格子中心绘制箭头
+                center = self.cells[(i, j)].get_center()
+                
+                for idx in best_indices:
+                    vec = directions[idx]
+                    # 箭头从中心出发，指向对应方向
+                    # 使用较短的箭头以放在格子内
+                    arrow = Arrow(
+                        start=center, 
+                        end=center + vec * 0.4, 
+                        buff=0, 
+                        color=YELLOW, 
+                        max_tip_length_to_length_ratio=0.4,
+                        stroke_width=3
+                    )
+                    arrows_group.add(arrow)
+                    
+        self.play(LaggedStart(Create(arrows_group), lag_ratio=0.02, run_time=3))
+
+    def create_zoom_cell(self, reward, value, type_str, size):
+        """创建一个放大的格子用于展示"""
+        color = self.get_static_color(reward)
+        cell = Square(side_length=size, color=WHITE, fill_color=color, fill_opacity=0.9)
         
-        title_text = Text("One-Step Lookahead", color=YELLOW, font_size=36).to_edge(UP)
+        r_text = f"{reward}"
+        if reward == 1.0: r_text = "+1.0"
+        
+        txt = Text(r_text, font_size=24, color=LIGHT_GREY).move_to(cell.get_center() + UP * 0.5)
+        val = DecimalNumber(value, num_decimal_places=2, font_size=32, color=WHITE).move_to(cell.get_center() + DOWN * 0.2)
+        
+        return VGroup(cell, txt, val)
+
+    def visualize_one_step(self, grid_group, values, rewards, target_pos):
+        """可视化单步前瞻 (Updated for R(s') + gamma*V(s'))"""
+        r, c = target_pos
+        
+        # --- 0. 高亮目标格子 ---
+        target_cell_map = self.cells[(r, c)]
+        
+        selection_box = Square(side_length=self.cell_size, color=YELLOW, stroke_width=8, fill_opacity=0)
+        selection_box.move_to(target_cell_map.get_center())
+        
+        selection_label = Text("Update Target", color=YELLOW, font_size=24).next_to(selection_box, UP, buff=0.1)
         
         self.play(
-            Create(highlight_box),
-            target_cell.animate.set_opacity(1),
-            Write(title_text)
+            Create(selection_box),
+            Write(selection_label)
+        )
+        self.wait(0.5)
+        self.play(FadeOut(selection_label))
+        
+        # 1. 移动主 Grid
+        self.play(
+            grid_group.animate.move_to(LEFT * 4.0).set_opacity(0.15),
+            selection_box.animate.shift(LEFT * 4.0)
         )
         
-        actions = [(-1, 0), (1, 0), (0, -1), (0, 1)] 
-        vecs = [UP, DOWN, LEFT, RIGHT]
+        # 2. 构建右侧放大版视图
+        zoom_group = VGroup()
+        zoom_cell_size = 1.5 
+        zoom_spacing_h = 3.0 
+        zoom_spacing_v = 2.6 
+        center_pos = RIGHT * 2.5 
         
+        target_val = values[r,c]
+        target_reward = rewards[r,c]
+        center_cell_grp = self.create_zoom_cell(target_reward, target_val, "Target", zoom_cell_size)
+        center_cell_grp.move_to(center_pos)
+        
+        center_val_mob = center_cell_grp[2]
+        
+        highlight = Square(side_length=zoom_cell_size, color=YELLOW, stroke_width=8, fill_opacity=0)
+        highlight.move_to(center_pos)
+        
+        zoom_group.add(center_cell_grp, highlight)
+        
+        # 绘制邻居
+        directions = [UP, DOWN, LEFT, RIGHT]
+        actions = [(-1, 0), (1, 0), (0, -1), (0, 1)] 
+        
+        for idx, (di, dj) in enumerate(actions):
+            ni, nj = r + di, c + dj
+            direction_vec = directions[idx]
+            
+            if idx < 2: pos = center_pos + direction_vec * zoom_spacing_v
+            else: pos = center_pos + direction_vec * zoom_spacing_h
+            
+            if 0 <= ni < self.grid_size and 0 <= nj < self.grid_size:
+                n_reward = rewards[ni,nj]
+                n_val = values[ni,nj]
+            else:
+                n_reward = rewards[r,c]
+                n_val = values[r,c]
+            
+            nb_cell = self.create_zoom_cell(n_reward, n_val, "Nb", zoom_cell_size)
+            nb_cell.move_to(pos)
+            zoom_group.add(nb_cell)
+
+        # 标题更新
+        title_text = Text("Calculating Q = R(next) + 0.9 * V(next)", color=YELLOW, font_size=32).next_to(zoom_group, UP, buff=0.2).shift(UP*0.5)
+        
+        self.play(FadeIn(zoom_group), Write(title_text))
+        
+        # 3. 演示计算过程
         arrows = VGroup()
-        calc_labels = VGroup()
+        result_labels = VGroup() 
         q_vals = []
         
         for idx, (di, dj) in enumerate(actions):
             ni, nj = r + di, c + dj
-            start = target_cell.get_center()
-            direction_vec = vecs[idx]
-            end = start + direction_vec * (self.grid_spacing * 0.7)
+            direction_vec = directions[idx]
             
             if 0 <= ni < self.grid_size and 0 <= nj < self.grid_size:
+                r_immediate = rewards[ni, nj] # R of entering neighbor
                 v_neighbor = values[ni, nj]
             else:
-                v_neighbor = values[r, c] 
+                r_immediate = rewards[r, c] # Wall -> R of entering self
+                v_neighbor = values[r, c]
             
-            current_reward = rewards[r, c]
-            q_val = current_reward + self.gamma * v_neighbor
+            q_val = r_immediate + self.gamma * v_neighbor
             q_vals.append(q_val)
             
-            arrow = Arrow(start, end, buff=0, color=BLUE_B, stroke_width=4, max_tip_length_to_length_ratio=0.25)
+            start = center_pos + direction_vec * (zoom_cell_size / 2)
+            if idx < 2: spacing = zoom_spacing_v
+            else: spacing = zoom_spacing_h
+            end = center_pos + direction_vec * (spacing - zoom_cell_size / 2)
+            
+            arrow = Arrow(start, end, buff=0.1, color=BLUE_B, stroke_width=6, max_tip_length_to_length_ratio=0.2)
             arrows.add(arrow)
             
-            label_text = MathTex(
-                f"{current_reward} + 0.9({v_neighbor:.1f})", 
-                font_size=20, 
+            formula_text = MathTex(
+                f"{r_immediate} + 0.9({v_neighbor:.0f})", 
+                font_size=24, 
                 color=WHITE
             )
+            if r_immediate > 0: formula_text.set_color(GREEN)
+            elif r_immediate < 0: formula_text.set_color(RED)
             
-            if v_neighbor == 1.0: label_text.set_color(GREEN)
-            elif v_neighbor == -1.0: label_text.set_color(RED)
-            elif v_neighbor < 0: label_text.set_color(ORANGE) # 稍微提示一下负值
+            result_text = MathTex(f"= {q_val:.2f}", font_size=28, color=YELLOW)
             
-            text_bg = BackgroundRectangle(label_text, color=BLACK, fill_opacity=0.7, buff=0.05)
-            label_group = VGroup(text_bg, label_text)
-            label_group.next_to(end, direction_vec, buff=0.1)
+            label_content = VGroup(formula_text, result_text).arrange(DOWN, buff=0.1)
             
-            calc_labels.add(label_group)
-        
+            label_bg = BackgroundRectangle(label_content, color=BLACK, fill_opacity=0.9, buff=0.1)
+            label_grp = VGroup(label_bg, label_content)
+            
+            midpoint = (start + end) / 2
+            label_grp.move_to(midpoint)
+            
+            result_labels.add(label_grp)
+
         self.play(LaggedStart(*[GrowArrow(a) for a in arrows], lag_ratio=0.2))
-        self.play(FadeIn(calc_labels))
-        self.wait(0.5)
         
-        result_objs = VGroup()
-        for i, q in enumerate(q_vals):
-            res_text = MathTex(f"= {q:.2f}", font_size=24, color=YELLOW)
-            target_pos = calc_labels[i].get_center() + DOWN * 0.35
-            res_text.move_to(target_pos)
-            res_bg = BackgroundRectangle(res_text, color=BLACK, fill_opacity=0.8, buff=0.05)
-            group = VGroup(res_bg, res_text)
-            result_objs.add(group)
-            
-        self.play(FadeIn(result_objs))
+        self.play(FadeIn(result_labels))
         self.wait(1)
         
         max_q = max(q_vals)
         max_idx = q_vals.index(max_q)
         
-        best_group = result_objs[max_idx]
-        best_bg = best_group[0]
-        best_text = best_group[1]
+        target_grp = result_labels[max_idx]
+        
+        max_label = Text("max", color=RED, font_size=24).next_to(target_grp, UP if max_idx >= 2 else RIGHT, buff=0.1)
         
         self.play(
-            best_text.animate.scale(1.5).set_color(GREEN),
-            *[FadeOut(result_objs[i]) for i in range(4) if i != max_idx],
-            FadeOut(best_bg), 
-            FadeOut(calc_labels),
-            FadeOut(arrows)
+            target_grp.animate.scale(1.2).set_stroke(GREEN, 3), 
+            Write(max_label),
+            run_time=0.5
         )
         
-        final_text = Text("MAX", font_size=24, color=GREEN).next_to(target_cell, UP, buff=0.1)
-        self.play(Write(final_text))
-        
-        self.play(
-            best_text.animate.move_to(target_cell.get_center()),
-            run_time=0.8
-        )
-        
+        values[r, c] = max_q
         self.value_trackers[(r, c)].set_value(max_q)
         
-        self.play(
-            FadeOut(best_text), 
-            FadeOut(final_text), 
-            FadeOut(highlight_box), 
-            FadeOut(title_text)
-        )
-        
-        self.play(grid_group.animate.set_opacity(1))
-        self.wait(1)
-
-    def simulate_agent(self, values, start_pos=(0, 0)):
-        """模拟智能体实战"""
-        agent = Dot(color=BLUE_A, radius=0.2).set_z_index(10)
-        start_cell = self.cells[start_pos]
-        agent.move_to(start_cell.get_center())
-        
-        sim_text = Text("Agent Simulation", font_size=24, color=BLUE).next_to(self.cells[(0,0)], UP, buff=0.5)
+        final_val = MathTex(f"V = {max_q:.2f}", color=GREEN, font_size=36).move_to(center_pos + DOWN * 0.3)
+        final_val_bg = BackgroundRectangle(final_val, color=BLACK, fill_opacity=0.8, buff=0.1)
+        final_group = VGroup(final_val_bg, final_val)
         
         self.play(
-            FadeIn(agent, scale=0.5),
-            Write(sim_text)
+            FadeOut(center_val_mob),
+            FadeIn(final_group)
         )
+        self.wait(0.5)
         
-        path = TracedPath(agent.get_center, stroke_color=BLUE, stroke_opacity=0.6, stroke_width=5)
-        self.add(path)
-        
-        curr_r, curr_c = start_pos
-        steps = 0
-        max_steps = 10 
-        
-        while steps < max_steps:
-            best_val = -np.inf
-            best_move = None
-            moves = [(-1, 0), (1, 0), (0, -1), (0, 1)] 
-            
-            for dr, dc in moves:
-                nr, nc = curr_r + dr, curr_c + dc
-                if 0 <= nr < self.grid_size and 0 <= nc < self.grid_size:
-                    val = values[nr, nc]
-                    if val > best_val:
-                        best_val = val
-                        best_move = (nr, nc)
-            
-            if best_move:
-                next_r, next_c = best_move
-                target_cell = self.cells[(next_r, next_c)]
-                
-                self.play(agent.animate.move_to(target_cell.get_center()), run_time=0.6)
-                curr_r, curr_c = next_r, next_c
-                
-                if values[curr_r, curr_c] == 1.0:
-                    victory_text = Text("Goal Reached!", color=YELLOW, font_size=36).move_to(sim_text)
-                    self.play(
-                        Transform(sim_text, victory_text),
-                        Flash(agent, color=YELLOW, flash_radius=0.5)
-                    )
-                    break
-                elif values[curr_r, curr_c] == -1.0:
-                    fail_text = Text("Trapped!", color=RED, font_size=36).move_to(sim_text)
-                    self.play(Transform(sim_text, fail_text), agent.animate.set_color(RED))
-                    break
-            else:
-                break
-            steps += 1
+        self.play(
+            FadeOut(zoom_group), 
+            FadeOut(arrows), 
+            FadeOut(result_labels), 
+            FadeOut(title_text),
+            FadeOut(final_group), 
+            FadeOut(selection_box),
+            FadeOut(max_label),
+            grid_group.animate.set_opacity(1)
+        )
