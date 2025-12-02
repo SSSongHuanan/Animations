@@ -19,10 +19,13 @@ class ValueIterationGeneral(Scene):
 
     def play_intro(self):
         """展示更加 General 的概念，但保留底部参数栏"""
+        # --- 修改: 标题使用 FadeIn，避免逐字书写 ---
         self.title = Text("Value Iteration", font_size=48, color=BLUE).to_edge(UP)
-        self.play(Write(self.title))
         
-        concept_text = Text("Objective: Maximize Expected Discounted Return", font_size=32).shift(UP * 1.5)
+        # --- 修改: 明确环境定义 (5x5 Maze) ---
+        env_text = Text("Problem: 5x5 Grid Maze Navigation", font_size=36, color=TEAL).next_to(self.title, DOWN, buff=0.5)
+        
+        concept_text = Text("Objective: Maximize Expected Discounted Return", font_size=32).next_to(env_text, DOWN, buff=0.5)
         
         series_eq = MathTex(
             r"V(s) = R_t + \gamma R_{t+1} + \gamma^2 R_{t+2} + \dots", 
@@ -32,19 +35,25 @@ class ValueIterationGeneral(Scene):
         bellman_eq = MathTex(
             r"V_{k+1}(s) \leftarrow \max_{a} [ R(s, a, s') + \gamma V_k(s') ]",
             font_size=36
-        ).next_to(series_eq, DOWN, buff=1.0)
+        ).next_to(series_eq, DOWN, buff=0.8)
         
         params_content = VGroup(
             MathTex(r"\gamma = 0.9", color=YELLOW),
-            Text("| Enter Goal:+1.0  Enter Trap:-1.0  Enter Mud:-0.5  Enter Normal:-0.04", font_size=20, color=GREY_B)
+            Text("| Goal:+1.0  Trap:-1.0  Mud:-0.5  Step:-0.04", font_size=20, color=GREY_B)
         ).arrange(RIGHT, buff=0.3)
         
         params = params_content.to_edge(DOWN, buff=1)
 
-        self.play(FadeIn(concept_text), Write(series_eq))
-        self.wait(1)
-        self.play(Write(bellman_eq))
-        self.play(Write(params))
+        # --- 修改: 动画逻辑全部改为 FadeIn ---
+        self.play(FadeIn(self.title), FadeIn(env_text))
+        self.wait(0.5)
+        
+        self.play(FadeIn(concept_text))
+        self.play(FadeIn(series_eq))
+        self.wait(0.5)
+        
+        self.play(FadeIn(bellman_eq))
+        self.play(FadeIn(params))
         self.wait(2)
         
         self.play(
@@ -52,6 +61,7 @@ class ValueIterationGeneral(Scene):
             FadeOut(series_eq),
             FadeOut(bellman_eq), 
             FadeOut(params),
+            FadeOut(env_text),
             self.title.animate.scale(0.8) 
         )
 
