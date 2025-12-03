@@ -1,309 +1,408 @@
 from manim import *
 import numpy as np
-import random
 
-class PolicyIterationDemo(Scene):
+class PolicyIterationGeneral(Scene):
     def construct(self):
-        # --- 0. 全局配置 ---
-        self.gamma = 0.9
-        self.grid_size = 3
-        self.cell_size = 1.5
-        self.grid_spacing = 1.6
+        # --- 0. 全局配置 (5x5) ---
+        config.max_files_cached = 500 
+        self.gamma = 0.9        
         
-        # 动作定义: 0:上, 1:下, 2:左, 3:右
+        # 固定轮次配置: 第一轮 10 步，后续 5 步
+        # 增加总轮次，确保策略能传导到起点
+        self.pe_steps_schedule = [10, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5] 
+        
+        self.grid_size = 5      
+        self.cell_size = 1.0    
+        self.grid_spacing = 1.1 
+        
+        # 动作定义
         self.actions = [(-1, 0), (1, 0), (0, -1), (0, 1)] 
         self.action_vecs = [UP, DOWN, LEFT, RIGHT]
         
         # --- 1. 播放理论介绍 ---
         self.play_intro()
         
-        # --- 2. 播放核心演示 ---
+        # --- 2. 播放核心网格演示 ---
         self.play_grid_world()
 
     def play_intro(self):
-        """展示策略迭代的核心逻辑"""
-        title = Text("Policy Iteration", font_size=48, color=BLUE).to_edge(UP)
-        self.play(Write(title))
+        """展示策略迭代 Intro"""
+        # 1. 标题
+        self.title = Text("Policy Iteration", font_size=48, color=BLUE).to_edge(UP)
+        env_text = Text("Problem: 5x5 Grid Maze Navigation", font_size=32, color=TEAL).next_to(self.title, DOWN, buff=0.3)
         
-        # 两个核心步骤的公式/文字
-        step1 = VGroup(
-            Text("1. Policy Evaluation", font_size=32, color=YELLOW),
-            MathTex(r"V(s) \leftarrow \sum P(s'|s, \pi(s))[R + \gamma V(s')]", font_size=28)
-        ).arrange(DOWN)
+        # 2. 内容 (左对齐)
+        s1_title = Text("1. Policy Evaluation", font_size=28, color=YELLOW)
+        s1_desc = Text("Iterate V(s) for k times (Fixed Steps)", font_size=20, color=GREY_B).next_to(s1_title, RIGHT, buff=0.2, aligned_edge=DOWN)
+        s1_header = VGroup(s1_title, s1_desc)
+        s1_eq = MathTex(r"V(s) \leftarrow \sum P(s'|s, \pi(s))[R + \gamma V(s')]", font_size=30).shift(RIGHT * 0.5)
+        step1_group = VGroup(s1_header, s1_eq).arrange(DOWN, aligned_edge=LEFT, buff=0.2)
         
-        step2 = VGroup(
-            Text("2. Policy Improvement", font_size=32, color=GREEN),
-            MathTex(r"\pi(s) \leftarrow \arg\max_a \sum P(s'|s, a)[R + \gamma V(s')]", font_size=28)
-        ).arrange(DOWN)
+        s2_title = Text("2. Policy Improvement", font_size=28, color=GREEN)
+        s2_eq = MathTex(r"\pi(s) \leftarrow \arg\max_a \sum P(s'|s, a)[R + \gamma V(s')]", font_size=30).shift(RIGHT * 0.5)
+        step2_group = VGroup(s2_title, s2_eq).arrange(DOWN, aligned_edge=LEFT, buff=0.2)
         
-        group = VGroup(step1, step2).arrange(RIGHT, buff=1.0).shift(UP*0.5)
+        content_group = VGroup(step1_group, step2_group).arrange(DOWN, aligned_edge=LEFT, buff=0.8)
+        content_group.next_to(env_text, DOWN, buff=0.8)
         
-        loop_arrow = CurvedArrow(step2.get_bottom(), step1.get_bottom(), angle=PI/2, color=WHITE)
-        loop_text = Text("Repeat until stable", font_size=24).next_to(loop_arrow, DOWN)
+        # 3. 底部参数
+        params_content = VGroup(
+            MathTex(r"\gamma = 0.9", color=YELLOW),
+            Text("k = 10 (Initial), k = 5 (Later)", font_size=24, color=RED),
+            Text("| Goal:+1.0  Trap:-1.0  Mud:-0.5  Step:-0.04", font_size=20, color=GREY_B)
+        ).arrange(RIGHT, buff=0.3)
+        params = params_content.to_edge(DOWN, buff=1)
+
+        # 4. 动画
+        self.play(FadeIn(self.title), FadeIn(env_text))
+        self.wait(0.5)
+        self.play(FadeIn(step1_group, shift=RIGHT))
+        self.wait(0.5)
+        self.play(FadeIn(step2_group, shift=RIGHT))
         
-        self.play(FadeIn(step1))
-        self.wait(1)
-        self.play(FadeIn(step2))
-        self.wait(1)
+        arrow_start = step2_group.get_left() + LEFT * 0.2
+        arrow_end = step1_group.get_left() + LEFT * 0.2
+        loop_arrow = CurvedArrow(arrow_start, arrow_end, angle=-PI/2, color=WHITE)
+        loop_text = Text("Repeat", font_size=16).next_to(loop_arrow, LEFT)
+        
         self.play(Create(loop_arrow), Write(loop_text))
+        self.play(FadeIn(params))
         self.wait(2)
         
         self.play(
-            FadeOut(step1), FadeOut(step2), FadeOut(loop_arrow), FadeOut(loop_text),
-            title.animate.scale(0.8)
+            FadeOut(content_group), 
+            FadeOut(params),
+            FadeOut(env_text),
+            FadeOut(loop_arrow),
+            FadeOut(loop_text),
+            self.title.animate.scale(0.8) 
         )
 
-    def get_heatmap_color(self, value):
-        """热力图配色方案"""
-        COLOR_NEUTRAL = BLACK     
-        COLOR_POS = GREEN         
-        COLOR_NEG = RED           
-        
-        if value > 0:
-            alpha = min(value, 1.0) 
-            return interpolate_color(COLOR_NEUTRAL, COLOR_POS, alpha)
-        elif value < 0:
-            alpha = min(abs(value), 1.0)
-            return interpolate_color(COLOR_NEUTRAL, COLOR_NEG, alpha)
-        else:
-            return COLOR_NEUTRAL
+    def get_static_color(self, reward):
+        if reward == 1.0: return TEAL_E      
+        if reward == -1.0: return MAROON_E   
+        if reward == -0.5: return ORANGE     
+        return DARK_GRAY                     
 
     def play_grid_world(self):
-        # --- A. 环境初始化 (带泥潭) ---
+        # --- A. 环境初始化 ---
         rewards = np.array([
-            [-0.04, -0.5, -0.04],   # (0,1) 是泥潭
-            [-0.04, -1.0,  -0.04],  # (1,1) 是陷阱
-            [-0.04, -0.04,  1.0]    # (2,2) 是目标
+            [-0.04, -0.04, -0.04, -0.50, -1.00], 
+            [-0.04, -1.00, -0.04, -1.00, -1.00], 
+            [-0.04, -0.50, -0.04, -0.04, -0.04], 
+            [-1.00, -1.00, -1.00, -1.00, -0.04], 
+            [-1.00, -0.04, -0.04, -0.04,  1.00]  
         ])
         
         values = np.zeros((self.grid_size, self.grid_size))
-        values[2, 2] = 1.0 
-        values[1, 1] = -1.0
         
-        # 随机初始化策略 (每个格子随机选一个方向)
-        # policy[i,j] 存储的是动作的索引 0-3
-        np.random.seed(42) # 固定随机种子以便复现
+        np.random.seed(42)
         policy = np.random.randint(0, 4, size=(self.grid_size, self.grid_size))
         
-        # --- B. 构建网格图形 ---
+        # --- B. 构建网格 ---
         grid_group = VGroup()
         self.value_trackers = {} 
         self.cells = {} 
-        self.arrow_mobjects = {} # 存储策略箭头
+        self.arrows = {} 
         
+        center_offset = (self.grid_size - 1) * self.grid_spacing / 2
+
         for i in range(self.grid_size):
             for j in range(self.grid_size):
-                pos = np.array([(j - 1) * self.grid_spacing, (1 - i) * self.grid_spacing, 0])
+                x = j * self.grid_spacing - center_offset
+                y = (self.grid_size - 1 - i) * self.grid_spacing - center_offset
+                pos = np.array([x, y, 0])
                 
-                # 初始颜色
-                fill_color = self.get_heatmap_color(values[i, j])
-                if rewards[i, j] == 1.0: fill_color = GREEN_E 
-                elif rewards[i, j] == -1.0: fill_color = RED_E
-                elif rewards[i, j] == -0.5: fill_color = ORANGE
-
-                cell = Square(side_length=self.cell_size, color=WHITE, fill_color=fill_color, fill_opacity=0.6)
+                fill_color = self.get_static_color(rewards[i, j])
+                cell = Square(side_length=self.cell_size, color=WHITE, fill_color=fill_color, fill_opacity=0.8)
                 cell.move_to(pos)
                 self.cells[(i, j)] = cell 
                 
-                # 标签
-                if rewards[i, j] == 1.0: r_text = "+1.0"
-                elif rewards[i, j] == -1.0: r_text = "-1.0"
-                elif rewards[i, j] == -0.5: r_text = "-0.5"
-                else: r_text = "-0.04"
+                if rewards[i, j] == 1.0: r_text, label_color = "Goal\n+1.0", YELLOW
+                elif rewards[i, j] == -1.0: r_text, label_color = "Trap\n-1.0", WHITE
+                elif rewards[i, j] == -0.5: r_text, label_color = "Mud\n-0.5", WHITE
+                else: r_text, label_color = "-0.04", WHITE
                 
-                reward_label = Text(r_text, font_size=16, color=YELLOW).move_to(pos + np.array([-0.4, 0.55, 0]))
-                
-                # 数值
+                reward_label = Text(r_text, font_size=9, line_spacing=0.8, color=label_color)
+                reward_label.move_to(pos + np.array([0, 0.32, 0]))
+                reward_label.set_z_index(10)
+
                 tracker = ValueTracker(values[i, j])
                 self.value_trackers[(i, j)] = tracker
-                val_num = DecimalNumber(values[i, j], num_decimal_places=2, font_size=24, color=WHITE)
-                val_num.move_to(pos + DOWN * 0.3) # 稍微往下移，给箭头腾位置
+                
+                # --- 修改处：保留 3 位小数，字号调小至 14 ---
+                val_num = DecimalNumber(
+                    values[i, j], num_decimal_places=3, show_ellipsis=False,
+                    font_size=14, color=WHITE
+                ).move_to(pos + np.array([0, -0.2, 0]))
+                
                 val_num.add_updater(lambda m, r=i, c=j: m.set_value(self.value_trackers[(r, c)].get_value()))
+                val_num.set_z_index(10)
                 
                 grid_group.add(cell, reward_label, val_num)
                 
-                # --- 初始化随机箭头 ---
-                if not (rewards[i, j] == 1.0 or rewards[i, j] == -1.0):
+                if rewards[i, j] != 1.0:
                     action_idx = policy[i, j]
                     vec = self.action_vecs[action_idx]
                     arrow = Arrow(
-                        start=ORIGIN, end=vec * 0.5, 
-                        buff=0, color=GOLD, stroke_width=4,
+                        start=pos, end=pos + vec * 0.4, buff=0, 
+                        color=GOLD, stroke_width=3, 
                         max_tip_length_to_length_ratio=0.4
-                    ).move_to(pos)
-                    self.arrow_mobjects[(i, j)] = arrow
+                    )
+                    arrow.set_opacity(0.6) 
+                    self.arrows[(i, j)] = arrow
                     grid_group.add(arrow)
 
-        # 布局
-        grid_group.move_to(ORIGIN).scale(0.8).to_edge(LEFT, buff=1)
+        grid_group.move_to(ORIGIN)
         self.play(Create(grid_group))
+        self.play(FadeOut(self.title))
+        self.play(grid_group.animate.scale(0.8).move_to(LEFT * 3.5))
         
-        # 状态指示器
-        phase_text = Text("Initializing...", font_size=36).to_edge(RIGHT, buff=2)
-        self.play(Write(phase_text))
+        # --- C. 右侧信息面板 ---
+        info_group = VGroup()
+        phase_title = Text("Phase: Initialization", font_size=24, color=WHITE).to_edge(RIGHT, buff=1.0).shift(UP*2.5)
+        iter_text = Text("Policy Iteration: 0", font_size=20).next_to(phase_title, DOWN, buff=0.3)
+        status_text = Text("Ready", font_size=20, color=YELLOW).next_to(iter_text, DOWN, buff=0.3)
         
-        # --- C. 策略迭代主循环 ---
-        iteration_count = 0
+        # --- Log Scale Axis Construction ---
+        y_height = 2.5
+        x_width = 3.5
+        
+        # 轴线
+        x_axis = Line(ORIGIN, RIGHT * x_width, color=BLUE)
+        y_axis = Line(ORIGIN, UP * y_height, color=BLUE)
+        axes_group = VGroup(x_axis, y_axis).next_to(status_text, DOWN, buff=0.8).shift(LEFT * 0.5)
+        
+        # X轴刻度 (0, 5, 10)
+        x_labels = VGroup()
+        for i in range(0, 11, 2):
+            tick = Line(UP*0.1, DOWN*0.1, color=BLUE).move_to(axes_group[0].get_start() + RIGHT * (i/10) * x_width)
+            label = Text(str(i), font_size=12).next_to(tick, DOWN, buff=0.1)
+            x_labels.add(tick, label)
+            
+        # Y轴刻度 (Log Scale: 10^0, 10^-1, 10^-2, 10^-3, 10^-4)
+        y_labels = VGroup()
+        log_vals = [0, -1, -2, -3, -4]
+        labels_tex = ["10^0", "10^{-1}", "10^{-2}", "10^{-3}", "10^{-4}"]
+        
+        for i, val in enumerate(log_vals):
+            # Normalize -4~0 to 0~1
+            norm_y = (val - (-4)) / 4
+            pos = axes_group[1].get_start() + UP * norm_y * y_height
+            tick = Line(LEFT*0.1, RIGHT*0.1, color=BLUE).move_to(pos)
+            label = MathTex(labels_tex[i], font_size=16).next_to(tick, LEFT, buff=0.1)
+            y_labels.add(tick, label)
+            
+        # 轴标签
+        x_label_text = Text("Step", font_size=16).next_to(x_axis, DOWN, buff=0.4)
+        y_label_text = Text("Max Error (Log)", font_size=16, color=WHITE).rotate(90*DEGREES).next_to(y_axis, LEFT, buff=0.6)
+        
+        # k 值文字
+        k_text = Text("Fixed Steps: k=--", color=RED, font_size=20).next_to(x_axis, DOWN, buff=0.6)
+
+        plot_group = VGroup(axes_group, x_labels, y_labels, x_label_text, y_label_text, k_text)
+        info_group.add(phase_title, iter_text, status_text, plot_group)
+        
+        self.play(Write(info_group))
+        
+        # --- D. 主循环 ---
         policy_stable = False
+        outer_iter = 0
         
-        while not policy_stable:
-            iteration_count += 1
-            iter_indicator = Text(f"Iteration: {iteration_count}", font_size=24, color=GREY).next_to(phase_text, UP)
-            self.add(iter_indicator)
+        # 增加最大迭代次数，确保 Agent 能找到路
+        while not policy_stable and outer_iter < 15:
+            current_target_steps = self.pe_steps_schedule[min(outer_iter, len(self.pe_steps_schedule)-1)]
+            outer_iter += 1
             
-            # --- 阶段 1: 策略评估 (Policy Evaluation) ---
-            self.play(Transform(phase_text, Text("Policy Evaluation", color=YELLOW, font_size=36).move_to(phase_text)))
+            # 更新 k 值文字
+            new_k_text = Text(f"Fixed Steps: k={current_target_steps}", color=RED, font_size=20).move_to(k_text)
             
-            # 视觉效果：淡化箭头，高亮数字
             self.play(
-                *[a.animate.set_opacity(0.3) for a in self.arrow_mobjects.values()],
+                iter_text.animate.become(Text(f"Policy Iteration: {outer_iter}", font_size=20).move_to(iter_text)),
+                Transform(k_text, new_k_text),
+                run_time=0.2
+            )
+            
+            # --- Phase 1: Policy Evaluation ---
+            self.play(
+                phase_title.animate.become(Text("Phase: Policy Evaluation", font_size=24, color=YELLOW).move_to(phase_title)),
+                status_text.animate.become(Text(f"Running for k={current_target_steps} steps", font_size=20, color=YELLOW).move_to(status_text)),
+                *[a.animate.set_opacity(0.3) for a in self.arrows.values()], 
                 run_time=0.5
             )
             
-            # 运行多步 PE 直到数值相对稳定 (这里为了演示效果，固定运行 5 步)
-            for pe_step in range(5): 
+            plot_dots = VGroup()
+            last_dot = None
+            
+            for pe_step in range(1, current_target_steps + 1):
+                max_diff = 0
                 new_values = values.copy()
-                grid_anims = []
+                anims = []
                 
                 for i in range(self.grid_size):
                     for j in range(self.grid_size):
-                        if rewards[i, j] == 1.0 or rewards[i, j] == -1.0: continue
-                        
-                        # 关键：只根据当前策略 policy[i,j] 更新，不取 max
+                        if rewards[i, j] == 1.0: continue 
+
                         action_idx = policy[i, j]
                         di, dj = self.actions[action_idx]
                         ni, nj = i + di, j + dj
                         
                         if 0 <= ni < self.grid_size and 0 <= nj < self.grid_size:
+                            r_next = rewards[ni, nj]
                             v_next = values[ni, nj]
                         else:
-                            v_next = values[i, j] # 撞墙
+                            r_next = rewards[i, j] 
+                            v_next = values[i, j]
                             
-                        # Bellman Expectation Equation
-                        new_values[i, j] = rewards[i, j] + self.gamma * v_next
+                        val = r_next + self.gamma * v_next
+                        new_values[i, j] = val
                         
-                        # 动画
-                        val_anim = self.value_trackers[(i, j)].animate.set_value(new_values[i, j])
-                        # 颜色
-                        new_color = self.get_heatmap_color(new_values[i, j])
-                        if rewards[i, j] == -0.5: new_color = ORANGE # 保持泥潭颜色
-                        col_anim = self.cells[(i, j)].animate.set_fill(new_color, opacity=0.6)
-                        
-                        grid_anims.append(AnimationGroup(val_anim, col_anim))
+                        diff = abs(val - values[i, j])
+                        if diff > max_diff:
+                            max_diff = diff
+                            
+                        if diff > 0.0001:
+                            anims.append(self.value_trackers[(i, j)].animate.set_value(val))
                 
                 values = new_values
-                self.play(LaggedStart(*grid_anims, lag_ratio=0.05), run_time=0.5) # 快速播放 PE
-            
-            # --- 阶段 2: 策略提升 (Policy Improvement) ---
-            self.play(Transform(phase_text, Text("Policy Improvement", color=GREEN, font_size=36).move_to(phase_text)))
-            
-            # 视觉效果：恢复箭头，淡化数字背景（可选）
+                
+                # --- 图表打点 (Log Scale) ---
+                plot_err = max(max_diff, 1e-4)
+                plot_err = min(plot_err, 1.0)
+                
+                log_err = np.log10(plot_err) # -4 to 0
+                norm_y = (log_err - (-4)) / 4
+                
+                # X轴映射: step 1->0, step 10->width
+                x_pos = (pe_step / 10) * x_width
+                y_pos = norm_y * y_height
+                
+                dot_pos = axes_group[0].get_start() + RIGHT * x_pos + UP * y_pos
+                new_dot = Dot(dot_pos, color=YELLOW, radius=0.06)
+                plot_dots.add(new_dot)
+                
+                connect_line = None
+                if last_dot:
+                    connect_line = Line(last_dot.get_center(), new_dot.get_center(), color=YELLOW, stroke_width=2)
+                    plot_dots.add(connect_line)
+                last_dot = new_dot
+
+                chart_anims = [Create(new_dot)]
+                if connect_line: chart_anims.append(Create(connect_line))
+                
+                if anims:
+                    self.play(
+                        AnimationGroup(*chart_anims), 
+                        LaggedStart(*anims, lag_ratio=0.01), 
+                        run_time=0.4
+                    )
+                else:
+                    self.play(AnimationGroup(*chart_anims), run_time=0.4)
+
+            # 变绿
+            if last_dot:
+                self.play(last_dot.animate.set_color(GREEN).scale(1.5), run_time=0.3)
+                self.play(last_dot.animate.scale(1/1.5), run_time=0.1)
+
+            self.play(FadeOut(plot_dots))
+
+            # --- Phase 2: Policy Improvement ---
             self.play(
-                *[a.animate.set_opacity(1.0) for a in self.arrow_mobjects.values()],
+                phase_title.animate.become(Text("Phase: Policy Improvement", font_size=24, color=GREEN).move_to(phase_title)),
+                status_text.animate.become(Text("Greedy Update", font_size=20, color=GREEN).move_to(status_text)),
+                *[a.animate.set_opacity(1.0) for a in self.arrows.values()],
                 run_time=0.5
             )
             
             policy_stable = True
-            improvement_anims = []
+            change_anims = []
             
             for i in range(self.grid_size):
                 for j in range(self.grid_size):
-                    if rewards[i, j] == 1.0 or rewards[i, j] == -1.0: continue
+                    if rewards[i, j] == 1.0: continue
                     
                     old_action = policy[i, j]
                     
-                    # 寻找贪婪动作
-                    best_val = -np.inf
-                    best_action = old_action
-                    
+                    q_values = []
                     for idx, (di, dj) in enumerate(self.actions):
                         ni, nj = i + di, j + dj
                         if 0 <= ni < self.grid_size and 0 <= nj < self.grid_size:
-                            v_neighbor = values[ni, nj]
+                            r_next = rewards[ni, nj]
+                            v_next = values[ni, nj]
                         else:
-                            v_neighbor = values[i, j]
+                            r_next = rewards[i, j]
+                            v_next = values[i, j]
                         
-                        q_val = rewards[i, j] + self.gamma * v_neighbor
-                        if q_val > best_val + 1e-5: # 加微小阈值防浮点误差
-                            best_val = q_val
-                            best_action = idx
+                        q = r_next + self.gamma * v_next
+                        q_values.append(q)
                     
-                    # 如果动作改变了，创建旋转动画
+                    best_action = np.argmax(q_values)
+                    
                     if best_action != old_action:
                         policy_stable = False
                         policy[i, j] = best_action
                         
-                        arrow = self.arrow_mobjects[(i, j)]
+                        arrow = self.arrows[(i, j)]
                         new_vec = self.action_vecs[best_action]
+                        center = self.cells[(i, j)].get_center()
                         
-                        # 旋转动画
-                        anim = Rotate(
-                            arrow, 
-                            angle=angle_between_vectors(arrow.get_vector(), new_vec),
-                            about_point=arrow.get_start() # 绕起点旋转
+                        new_arrow = Arrow(
+                            start=center, end=center + new_vec * 0.4, buff=0, 
+                            color=GREEN, stroke_width=3, 
+                            max_tip_length_to_length_ratio=0.4
                         )
-                        # 或者直接 Transform
-                        target_arrow = Arrow(start=ORIGIN, end=new_vec*0.5, buff=0, color=GREEN, stroke_width=4, max_tip_length_to_length_ratio=0.4).move_to(arrow.get_center())
-                        anim = Transform(arrow, target_arrow)
-                        
-                        # 同时稍微高亮一下这个格子，表示策略变了
-                        flash = self.cells[(i, j)].animate.set_stroke(YELLOW, width=6).set_stroke(WHITE, width=0) # 闪一下
-                        improvement_anims.append(Succession(anim, flash))
+                        change_anims.append(Transform(arrow, new_arrow))
             
-            if len(improvement_anims) > 0:
-                self.play(LaggedStart(*improvement_anims, lag_ratio=0.1), run_time=1.5)
+            if change_anims:
+                self.play(LaggedStart(*change_anims, lag_ratio=0.05), run_time=1.5)
             else:
-                self.wait(0.5) # 如果没变化，稍作停留
-            
-            self.remove(iter_indicator)
-            
-            # 防止无限循环演示 (虽然 PI 理论上必收敛)
-            if iteration_count > 10: break
-
-        # --- D. 收敛完成 ---
-        final_text = Text("Policy Converged!", color=GOLD, font_size=40).move_to(phase_text)
-        self.play(Transform(phase_text, final_text))
-        self.wait(1)
-
-        # --- E. 智能体实战 (和之前一样) ---
-        self.simulate_agent(values, start_pos=(0, 0))
-
-    def simulate_agent(self, values, start_pos=(0, 0)):
-        # 简化版模拟代码
-        agent = Dot(color=BLUE_A, radius=0.2).set_z_index(10)
-        start_cell = self.cells[start_pos]
-        agent.move_to(start_cell.get_center())
+                self.play(Flash(status_text, color=GREEN, run_time=0.8))
+                
+        # --- E. 结束与 Agent 演示 ---
+        final_text = Text("Converged! Running Agent...", color=GREEN, font_size=24).next_to(status_text, DOWN)
+        self.play(Write(final_text))
         
-        sim_text = Text("Agent Run", font_size=24, color=BLUE).next_to(self.cells[(0,0)], UP, buff=0.5)
-        self.play(FadeIn(agent), Write(sim_text))
-        path = TracedPath(agent.get_center, stroke_color=BLUE, stroke_opacity=0.6, stroke_width=5)
-        self.add(path)
-        
+        self.simulate_agent(policy)
+
+    def simulate_agent(self, policy):
+        start_pos = (0, 0)
         curr_r, curr_c = start_pos
+        
+        start_center = self.cells[start_pos].get_center()
+        
+        # Z-index 300 确保在最顶层
+        agent = Dot(color=BLUE, radius=0.25).move_to(start_center).set_z_index(300)
+        path = TracedPath(agent.get_center, stroke_color=BLUE_A, stroke_width=4, stroke_opacity=0.8).set_z_index(299)
+        
+        self.add(path)
+        self.play(FadeIn(agent))
+        self.wait(0.5)
+        
         steps = 0
-        while steps < 10:
-            # 简单的贪心策略
-            best_val = -np.inf
-            best_move = None
-            for dr, dc in [(-1,0), (1,0), (0,-1), (0,1)]:
-                nr, nc = curr_r + dr, curr_c + dc
-                if 0 <= nr < self.grid_size and 0 <= nc < self.grid_size:
-                    if values[nr, nc] > best_val:
-                        best_val = values[nr, nc]
-                        best_move = (nr, nc)
+        while steps < 20: # 增加步数上限以防万一
+            action_idx = policy[curr_r, curr_c]
+            di, dj = self.actions[action_idx]
+            nr, nc = curr_r + di, curr_c + dj
             
-            if best_move:
-                next_r, next_c = best_move
-                self.play(agent.animate.move_to(self.cells[(next_r, next_c)].get_center()), run_time=0.5)
-                curr_r, curr_c = next_r, next_c
-                if values[curr_r, curr_c] == 1.0:
-                    self.play(Flash(agent, color=YELLOW))
+            # 碰撞检测
+            hit_wall = False
+            if 0 <= nr < self.grid_size and 0 <= nc < self.grid_size:
+                target_pos = self.cells[(nr, nc)].get_center()
+                
+                # 执行移动
+                self.play(agent.animate.move_to(target_pos), run_time=0.6, rate_func=smooth)
+                curr_r, curr_c = nr, nc
+                
+                if (curr_r, curr_c) == (4, 4):
+                    self.play(Flash(agent, color=YELLOW, line_length=0.5))
                     break
+            else:
+                # 撞墙可视化：变红并轻微抖动
+                hit_wall = True
+                
+            if hit_wall:
+                self.play(Indicate(agent, color=RED, scale_factor=1.2), run_time=0.5)
+            
             steps += 1
+        
         self.wait(2)
-
-def angle_between_vectors(v1, v2):
-    """辅助函数：计算旋转角度"""
-    angle1 = np.arctan2(v1[1], v1[0])
-    angle2 = np.arctan2(v2[1], v2[0])
-    return angle2 - angle1

@@ -193,12 +193,14 @@ class ValueIterationGeneral(Scene):
         y_lbl = ax.get_y_axis_label("Max Error").scale(0.5).rotate(90*DEGREES).next_to(ax, LEFT, buff=0.1)
 
         plot_group = VGroup(ax, x_lbl, y_lbl, threshold_line, threshold_label)
-        self.play(Create(plot_group))
         
+        # --- 修改1: 右侧坐标系与文字全部一次性渲染 ---
         iter_label = Text("Iteration: 0", font_size=24).next_to(ax, UP, buff=0.5).shift(LEFT * 1.0)
         error_label = Text("Max Error: N/A", font_size=24, color=YELLOW).next_to(iter_label, RIGHT, buff=0.5)
         
-        self.play(Write(iter_label), Write(error_label))
+        # 将所有UI元素打包，使用 FadeIn 一次性展示 (替代 Create/Write)
+        all_plot_ui = VGroup(plot_group, iter_label, error_label)
+        self.play(FadeIn(all_plot_ui))
         
         # --- E. 宏观演示: 价值迭代主循环 ---
         max_iterations = 40 
@@ -303,7 +305,11 @@ class ValueIterationGeneral(Scene):
         
         final_text = Text("Optimal Policy: Visualized by Arrows", color=GREEN, font_size=32).to_edge(DOWN)
         self.play(FadeIn(final_text))
-        self.wait(3)
+        self.wait(1)
+
+        # --- NEW H. 增加 Agent 寻路演示 ---
+        self.play(FadeOut(final_text))
+        self.simulate_agent(values, rewards)
 
     def show_optimal_policy(self, values, rewards):
         """在每个格子上绘制箭头，指示最优策略方向。若有多个最优方向，则绘制多个箭头。"""
@@ -324,9 +330,6 @@ class ValueIterationGeneral(Scene):
                     dot = Dot(color=YELLOW).move_to(self.cells[(i, j)].get_center())
                     arrows_group.add(dot)
                     continue
-                
-                # 如果是 Trap，策略可能是尽快离开，但通常 Trap 周围的价值很低
-                # 我们依然计算其最优策略（虽然 Agent 尽量不会走到这）
                 
                 q_values = []
                 for di, dj in actions:
@@ -539,3 +542,74 @@ class ValueIterationGeneral(Scene):
             FadeOut(max_label),
             grid_group.animate.set_opacity(1)
         )
+
+    def simulate_agent(self, values, rewards):
+        """演示 Agent 从起点 (0,0) 利用计算出的价值函数走到终点"""
+        # --- 1. 初始化 Agent ---
+        start_pos = (0, 0)
+        curr_r, curr_c = start_pos
+        
+        # 重新定位到 Grid 的当前位置 (它被移到了 LEFT * 3.5)
+        # 注意：self.cells 里的对象已经被移走了，所以 get_center() 是最新的位置
+        start_cell_center = self.cells[start_pos].get_center()
+        
+        agent = Dot(color=BLUE, radius=0.2).move_to(start_cell_center).set_z_index(100)
+        path = TracedPath(agent.get_center, stroke_color=BLUE_A, stroke_width=4, stroke_opacity=0.8).set_z_index(99)
+        
+        agent_label = Text("Optimal Agent", font_size=20, color=BLUE).next_to(agent, UP, buff=0.2)
+        
+        self.play(FadeIn(agent), Write(agent_label))
+        self.add(path)
+        self.wait(0.5)
+        self.play(FadeOut(agent_label))
+
+        # --- 2. 寻路循环 ---
+        # 动作: Up, Down, Left, Right
+        actions = [(-1, 0), (1, 0), (0, -1), (0, 1)] 
+        steps = 0
+        
+        while steps < 20: # 安全上限
+            # 贪婪选择: argmax [R + gamma * V_next]
+            best_q = -np.inf
+            best_move = None
+            
+            for di, dj in actions:
+                ni, nj = curr_r + di, curr_c + dj
+                
+                # 越界检查
+                if 0 <= ni < self.grid_size and 0 <= nj < self.grid_size:
+                    r_next = rewards[ni, nj]
+                    v_next = values[ni, nj]
+                else:
+                    # 撞墙 (假设原地不动)
+                    r_next = rewards[curr_r, curr_c] 
+                    v_next = values[curr_r, curr_c]
+                
+                q_val = r_next + self.gamma * v_next
+                
+                # 只有更好的才更新 (简单的 argmax)
+                if q_val > best_q:
+                    best_q = q_val
+                    best_move = (ni, nj)
+            
+            # 执行移动
+            if best_move:
+                ni, nj = best_move
+                # 如果最佳策略是撞墙（理论上不应该，除非全都是负反馈且无路可走），则不动
+                if 0 <= ni < self.grid_size and 0 <= nj < self.grid_size:
+                     target_pos = self.cells[(ni, nj)].get_center()
+                     self.play(agent.animate.move_to(target_pos), run_time=0.5, rate_func=linear)
+                     curr_r, curr_c = ni, nj
+                
+                # 到达终点 Goal (4, 4)
+                if rewards[curr_r, curr_c] == 1.0:
+                    self.play(Flash(agent, color=YELLOW, line_length=0.5))
+                    
+                    # --- 修改2: 文字移到底部边缘，防止遮挡 Grid ---
+                    success_text = Text("Goal Reached!", color=YELLOW, font_size=32).to_edge(DOWN)
+                    self.play(Write(success_text))
+                    break
+            
+            steps += 1
+            
+        self.wait(2)
