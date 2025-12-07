@@ -18,25 +18,42 @@ class ValueIterationGeneral(Scene):
         self.play_grid_world()
 
     def play_intro(self):
-        """展示更加 General 的概念，但保留底部参数栏"""
-        # --- 修改: 标题使用 FadeIn，避免逐字书写 ---
+        """
+        展示 Value Iteration 概念
+        排版风格完全模仿 Policy Iteration: 左对齐、分步骤、淡入位移
+        """
+        # --- 1. 标题与环境定义 ---
         self.title = Text("Value Iteration", font_size=48, color=BLUE).to_edge(UP)
+        env_text = Text("Problem: 5x5 Grid Maze Navigation", font_size=32, color=TEAL).next_to(self.title, DOWN, buff=0.3)
         
-        # --- 修改: 明确环境定义 (5x5 Maze) ---
-        env_text = Text("Problem: 5x5 Grid Maze Navigation", font_size=36, color=TEAL).next_to(self.title, DOWN, buff=0.5)
+        # --- 2. 内容模块 (左对齐布局) ---
         
-        concept_text = Text("Objective: Maximize Expected Discounted Return", font_size=32).next_to(env_text, DOWN, buff=0.5)
+        # 模块 1: 目标 (对应 PI 的 Step 1 位置)
+        s1_title = Text("1. Objective", font_size=28, color=YELLOW)
+        s1_desc = Text("Maximize Expected Discounted Return", font_size=20, color=GREY_B).next_to(s1_title, RIGHT, buff=0.2, aligned_edge=DOWN)
+        s1_header = VGroup(s1_title, s1_desc)
         
-        series_eq = MathTex(
-            r"V(s) = R_t + \gamma R_{t+1} + \gamma^2 R_{t+2} + \dots", 
-            font_size=36, color=YELLOW
-        ).next_to(concept_text, DOWN, buff=0.3)
+        # 展开形式的公式
+        s1_eq = MathTex(r"V(s) = \mathbb{E} [R_t + \gamma R_{t+1} + \gamma^2 R_{t+2} + \dots]", font_size=30).shift(RIGHT * 0.5)
+        step1_group = VGroup(s1_header, s1_eq).arrange(DOWN, aligned_edge=LEFT, buff=0.2)
         
-        bellman_eq = MathTex(
+        # 模块 2: 核心算法 (对应 PI 的 Step 2 位置)
+        s2_title = Text("2. Bellman Optimality Update", font_size=28, color=GREEN)
+        s2_desc = Text("Iteratively update values until convergence", font_size=20, color=GREY_B).next_to(s2_title, RIGHT, buff=0.2, aligned_edge=DOWN)
+        s2_header = VGroup(s2_title, s2_desc)
+        
+        # Bellman Optimality Equation
+        s2_eq = MathTex(
             r"V_{k+1}(s) \leftarrow \max_{a} [ R(s, a, s') + \gamma V_k(s') ]",
-            font_size=36
-        ).next_to(series_eq, DOWN, buff=0.8)
+            font_size=30
+        ).shift(RIGHT * 0.5)
+        step2_group = VGroup(s2_header, s2_eq).arrange(DOWN, aligned_edge=LEFT, buff=0.2)
         
+        # 组合整体内容
+        content_group = VGroup(step1_group, step2_group).arrange(DOWN, aligned_edge=LEFT, buff=0.8)
+        content_group.next_to(env_text, DOWN, buff=0.8)
+        
+        # --- 3. 底部参数栏 (保持与 PI 一致) ---
         params_content = VGroup(
             MathTex(r"\gamma = 0.9", color=YELLOW),
             Text("| Goal:+1.0  Trap:-1.0  Mud:-0.5  Step:-0.04", font_size=20, color=GREY_B)
@@ -44,22 +61,23 @@ class ValueIterationGeneral(Scene):
         
         params = params_content.to_edge(DOWN, buff=1)
 
-        # --- 修改: 动画逻辑全部改为 FadeIn ---
+        # --- 4. 播放动画 (模仿 PI 的时序) ---
         self.play(FadeIn(self.title), FadeIn(env_text))
         self.wait(0.5)
         
-        self.play(FadeIn(concept_text))
-        self.play(FadeIn(series_eq))
+        # 带位移的淡入
+        self.play(FadeIn(step1_group, shift=RIGHT))
         self.wait(0.5)
         
-        self.play(FadeIn(bellman_eq))
-        self.play(FadeIn(params))
-        self.wait(2)
+        self.play(FadeIn(step2_group, shift=RIGHT))
+        self.wait(0.5)
         
+        self.play(FadeIn(params))
+        self.wait(2.5)
+        
+        # --- 5. 清场 ---
         self.play(
-            FadeOut(concept_text),
-            FadeOut(series_eq),
-            FadeOut(bellman_eq), 
+            FadeOut(content_group),
             FadeOut(params),
             FadeOut(env_text),
             self.title.animate.scale(0.8) 
