@@ -770,4 +770,4 @@ class ValueIterationGeneral(Scene):
             
             steps += 1
             
-        self.wait(2)
+        self.wait(2

@@ -4,7 +4,7 @@ import numpy as np
 class PolicyIterationGeneral(Scene):
     def construct(self):
         # --- 0. 全局配置 (5x5) ---
-        config.max_files_cached = 500 
+        config.max_files_cached = 5000 
         self.gamma = 0.9        
         
         # 固定轮次配置: 第一轮 10 步，后续 5 步
@@ -25,58 +25,210 @@ class PolicyIterationGeneral(Scene):
         # --- 2. 播放核心网格演示 ---
         self.play_grid_world()
 
+    # ---------- 新增/修改的 Intro 部分 ----------
     def play_intro(self):
-        """展示策略迭代 Intro"""
-        # 1. 标题
+        """
+        Policy Iteration Intro (Re-designed to match QLearning style)
+        Structure:
+        1. Definition (Math)
+        2. Environment (Legend)
+        3. The Loop (Eval <-> Improve)
+        4. Dashboard (Log Error chart)
+        5. Schedule (k-steps)
+        """
+        # 设置节奏参数 (与 QLearning 保持一致)
+        self.intro_slow = 3.0
+        
+        # 顶部标题
         self.title = Text("Policy Iteration", font_size=48, color=BLUE).to_edge(UP)
-        env_text = Text("Problem: 5x5 Grid Maze Navigation", font_size=32, color=TEAL).next_to(self.title, DOWN, buff=0.3)
-        
-        # 2. 内容 (左对齐)
-        s1_title = Text("1. Policy Evaluation", font_size=28, color=YELLOW)
-        s1_desc = Text("Iterate V(s) for k times (Fixed Steps)", font_size=20, color=GREY_B).next_to(s1_title, RIGHT, buff=0.2, aligned_edge=DOWN)
-        s1_header = VGroup(s1_title, s1_desc)
-        s1_eq = MathTex(r"V(s) \leftarrow \sum P(s'|s, \pi(s))[R + \gamma V(s')]", font_size=30).shift(RIGHT * 0.5)
-        step1_group = VGroup(s1_header, s1_eq).arrange(DOWN, aligned_edge=LEFT, buff=0.2)
-        
-        s2_title = Text("2. Policy Improvement", font_size=28, color=GREEN)
-        s2_eq = MathTex(r"\pi(s) \leftarrow \arg\max_a \sum P(s'|s, a)[R + \gamma V(s')]", font_size=30).shift(RIGHT * 0.5)
-        step2_group = VGroup(s2_title, s2_eq).arrange(DOWN, aligned_edge=LEFT, buff=0.2)
-        
-        content_group = VGroup(step1_group, step2_group).arrange(DOWN, aligned_edge=LEFT, buff=0.8)
-        content_group.next_to(env_text, DOWN, buff=0.8)
-        
-        # 3. 底部参数
-        params_content = VGroup(
-            MathTex(r"\gamma = 0.9", color=YELLOW),
-            Text("k = 10 (Initial), k = 5 (Later)", font_size=24, color=RED),
-            Text("| Goal:+1.0  Trap:-1.0  Mud:-0.5  Step:-0.04", font_size=20, color=GREY_B)
-        ).arrange(RIGHT, buff=0.3)
-        params = params_content.to_edge(DOWN, buff=1)
-
-        # 4. 动画
-        self.play(FadeIn(self.title), FadeIn(env_text))
-        self.wait(0.5)
-        self.play(FadeIn(step1_group, shift=RIGHT))
-        self.wait(0.5)
-        self.play(FadeIn(step2_group, shift=RIGHT))
-        
-        arrow_start = step2_group.get_left() + LEFT * 0.2
-        arrow_end = step1_group.get_left() + LEFT * 0.2
-        loop_arrow = CurvedArrow(arrow_start, arrow_end, angle=-PI/2, color=WHITE)
-        loop_text = Text("Repeat", font_size=16).next_to(loop_arrow, LEFT)
-        
-        self.play(Create(loop_arrow), Write(loop_text))
-        self.play(FadeIn(params))
-        self.wait(2)
-        
-        self.play(
-            FadeOut(content_group), 
-            FadeOut(params),
-            FadeOut(env_text),
-            FadeOut(loop_arrow),
-            FadeOut(loop_text),
-            self.title.animate.scale(0.8) 
+        env_text = Text("Problem: 5x5 Grid Maze Navigation", font_size=32, color=TEAL).next_to(
+            self.title, DOWN, buff=0.3
         )
+
+        self.play(FadeIn(self.title), FadeIn(env_text))
+        self.wait(0.3 * self.intro_slow)
+
+        total_pages = 5
+
+        # --- Helpers (内部定义，保持命名空间整洁) ---
+        def page_counter(n):
+            return Text(f"{n}/{total_pages}", font_size=18, color=GREY_B).to_corner(DR).shift(
+                UP * 0.35 + LEFT * 0.35
+            )
+
+        def fit_to_intro_area(mob, top_anchor, side_margin=0.7, bottom_margin=0.55, top_buff=0.55):
+            max_w = config.frame_width - 2 * side_margin
+            top_y = top_anchor.get_bottom()[1] - top_buff
+            bottom_y = -config.frame_height / 2 + bottom_margin
+            max_h = top_y - bottom_y
+
+            if mob.width > max_w:
+                mob.scale_to_fit_width(max_w)
+            if mob.height > max_h:
+                mob.scale_to_fit_height(max_h)
+
+        def show_page(n, group, keep_env=True, hold=1.4):
+            fit_to_intro_area(group, env_text)
+            group.next_to(env_text, DOWN, buff=0.65).align_to(env_text, LEFT)
+
+            counter = page_counter(n)
+            fade_in_rt = 0.35 * self.intro_slow
+            fade_out_rt = 0.30 * self.intro_slow
+
+            self.play(FadeIn(group, shift=RIGHT), FadeIn(counter), run_time=fade_in_rt)
+            self.wait(hold * self.intro_slow)
+            if keep_env:
+                self.play(FadeOut(group, shift=LEFT), FadeOut(counter), run_time=fade_out_rt)
+            else:
+                self.play(FadeOut(group, shift=LEFT), FadeOut(counter), FadeOut(env_text), run_time=fade_out_rt)
+
+        # --- Page 1: What is Policy Iteration? ---
+        p1_t = Text("1. What is Policy Iteration?", font_size=30, color=YELLOW)
+        p1_desc = Text(
+            "Model-based Dynamic Programming: Alternates two phases",
+            font_size=22,
+            color=GREY_B,
+        )
+        p1_header = VGroup(p1_t, p1_desc).arrange(DOWN, aligned_edge=LEFT, buff=0.12)
+
+        # 公式
+        p1_eq1 = MathTex(r"\textbf{1. Eval: } V(s) \leftarrow \sum P(s'|s,\pi)[R+\gamma V(s')]", font_size=32)
+        p1_eq2 = MathTex(r"\textbf{2. Improve: } \pi(s) \leftarrow \arg\max_a \sum P(s'|s,a)[R+\gamma V(s')]", font_size=32)
+        p1_eqs = VGroup(p1_eq1, p1_eq2).arrange(DOWN, aligned_edge=LEFT, buff=0.25).shift(RIGHT * 0.2)
+
+        p1_bul = VGroup(
+            Text("• Requires Environment Model (P, R)", font_size=22, color=WHITE),
+            Text("• Policy Evaluation: calculates V for current π", font_size=22, color=WHITE),
+            Text("• Policy Improvement: updates π to be greedy wrt V", font_size=22, color=WHITE),
+        ).arrange(DOWN, aligned_edge=LEFT, buff=0.18)
+
+        p1_group = VGroup(p1_header, p1_eqs, p1_bul).arrange(DOWN, aligned_edge=LEFT, buff=0.4)
+        show_page(1, p1_group, keep_env=True, hold=1.6)
+
+        # --- Page 2: Environment & Rewards (Same as Q-Learning) ---
+        p2_t = Text("2. Environment & Rewards", font_size=30, color=YELLOW)
+        def legend_item(color, label, value_text):
+            box = Square(
+                side_length=0.35, fill_color=color, fill_opacity=0.9, stroke_color=WHITE, stroke_width=1.5
+            )
+            t1 = Text(label, font_size=24, color=WHITE)
+            t2 = Text(value_text, font_size=24, color=GREY_B)
+            return VGroup(box, t1, t2).arrange(RIGHT, buff=0.25, aligned_edge=DOWN)
+
+        # 使用 policy_iteration.py 中定义的颜色 (TEAL_E, MAROON_E 等)
+        L1 = legend_item(TEAL_E, "Goal", "+1.0 (terminal)")
+        L2 = legend_item(MAROON_E, "Trap", "-1.0 (flash only)")
+        L3 = legend_item(ORANGE, "Mud", "-0.5")
+        L4 = legend_item(DARK_GRAY, "Step", "-0.04 per move")
+        
+        legend = VGroup(L1, L2, L3, L4).arrange(DOWN, aligned_edge=LEFT, buff=0.22)
+        
+        # Grid visual hint
+        hint_text = Text("State Value V(s) shown in each cell", font_size=24, color=BLUE_B)
+        
+        p2_group = VGroup(p2_t, legend, hint_text).arrange(DOWN, aligned_edge=LEFT, buff=0.38)
+        show_page(2, p2_group, keep_env=True, hold=1.6)
+
+        # --- Page 3: The Algorithm Loop ---
+        p3_t = Text("3. The Iteration Loop", font_size=30, color=YELLOW)
+        
+        # 创建循环图示
+        eval_box = RoundedRectangle(height=1.2, width=3.0, corner_radius=0.2, color=BLUE)
+        eval_txt = VGroup(Text("Evaluation", font_size=24, color=BLUE), Text("Update V(s)", font_size=20, color=GREY_B)).arrange(DOWN)
+        eval_grp = VGroup(eval_box, eval_txt)
+        
+        imp_box = RoundedRectangle(height=1.2, width=3.0, corner_radius=0.2, color=GREEN)
+        imp_txt = VGroup(Text("Improvement", font_size=24, color=GREEN), Text("Update π(s)", font_size=20, color=GREY_B)).arrange(DOWN)
+        imp_grp = VGroup(imp_box, imp_txt)
+        
+        loop_grp = VGroup(eval_grp, imp_grp).arrange(RIGHT, buff=2.0)
+        
+        arrow_top = Arrow(eval_box.get_top(), imp_box.get_top(), path_arc=-1.0, color=WHITE)
+        arrow_btm = Arrow(imp_box.get_bottom(), eval_box.get_bottom(), path_arc=-1.0, color=WHITE)
+        
+        lbl_top = Text("Converged?", font_size=16).next_to(arrow_top, UP)
+        lbl_btm = Text("New Policy", font_size=16).next_to(arrow_btm, DOWN)
+        
+        diagram = VGroup(loop_grp, arrow_top, arrow_btm, lbl_top, lbl_btm)
+        
+        p3_note = Text("Iterates until policy stops changing (Stable)", font_size=22, color=WHITE)
+        
+        p3_group = VGroup(p3_t, diagram, p3_note).arrange(DOWN, aligned_edge=LEFT, buff=0.5)
+        show_page(3, p3_group, keep_env=True, hold=1.6)
+
+        # --- Page 4: Dashboard Logic ---
+        p4_t = Text("4. Dashboard: Convergence Check", font_size=30, color=YELLOW)
+        
+        p4_items = VGroup(
+            Text("• Left Grid: Displays V(s) and Policy Arrows (Gold/Green)", font_size=24, color=WHITE),
+            Text("• Right Chart: Max Error (Log Scale)", font_size=24, color=TEAL),
+            Text("    - Shows how quickly V(s) converges in Eval phase", font_size=20, color=GREY_B),
+            Text("    - Y-axis: 10^0 down to 10^-4", font_size=20, color=GREY_B),
+            Text("• Phase Indicator: Initialization -> Eval -> Improve", font_size=24, color=WHITE),
+        ).arrange(DOWN, aligned_edge=LEFT, buff=0.2)
+        
+        p4_group = VGroup(p4_t, p4_items).arrange(DOWN, aligned_edge=LEFT, buff=0.4)
+        show_page(4, p4_group, keep_env=True, hold=1.6)
+
+        # --- Page 5: Schedule & Parameters ---
+        p5_t = Text("5. Demo Schedule", font_size=30, color=YELLOW)
+
+        def stage_block(title, subtitle, color_fill):
+            box_width = 9.0
+            box = RoundedRectangle(
+                corner_radius=0.15, height=1.15, width=box_width,
+                fill_color=color_fill, fill_opacity=0.25,
+                stroke_color=WHITE, stroke_width=2,
+            )
+            t = Text(title, font_size=24, color=WHITE)
+            s = Text(subtitle, font_size=18, color=GREY_B)
+            vg = VGroup(t, s).arrange(DOWN, aligned_edge=LEFT, buff=0.10)
+            
+            # fit width
+            if vg.width > box_width - 0.6: vg.scale_to_fit_width(box_width - 0.6)
+            vg.move_to(box.get_center()).align_to(box, LEFT).shift(RIGHT * 0.25)
+            return VGroup(box, vg)
+
+        st1 = stage_block(
+            "Iteration 1 (Slow)",
+            "Evaluation runs for fixed k=10 steps • Visualizes error drop",
+            BLUE_E,
+        )
+        st2 = stage_block(
+            "Iteration 2+ (Faster)",
+            "Evaluation runs for fixed k=5 steps • Policy updates quickly",
+            GREEN_E,
+        )
+        st3 = stage_block(
+            "Final Agent Run",
+            "Agent follows the optimal policy (Green path) to Goal",
+            GOLD_E,
+        )
+        timeline = VGroup(st1, st2, st3).arrange(DOWN, aligned_edge=LEFT, buff=0.28)
+
+        params_line = VGroup(
+            MathTex(rf"\gamma={self.gamma}\quad \text{{Grid}}=5\times5", font_size=30, color=YELLOW),
+            Text(f"| Seeds = 42", font_size=22, color=GREY_B),
+        ).arrange(RIGHT, buff=0.4)
+
+        p5_group = VGroup(p5_t, timeline, params_line).arrange(DOWN, aligned_edge=LEFT, buff=0.38)
+        
+        fit_to_intro_area(p5_group, env_text)
+        p5_group.next_to(env_text, DOWN, buff=0.65).align_to(env_text, LEFT)
+
+        counter = page_counter(5)
+        self.play(FadeIn(p5_group, shift=RIGHT), FadeIn(counter), run_time=0.35 * self.intro_slow)
+        self.wait(1.9 * self.intro_slow)
+        
+        # End intro
+        self.play(
+            FadeOut(p5_group, shift=LEFT),
+            FadeOut(counter),
+            FadeOut(env_text),
+            self.title.animate.scale(0.8),
+            run_time=0.30 * self.intro_slow,
+        )
+        self.wait(0.15 * self.intro_slow)
 
     def get_static_color(self, reward):
         if reward == 1.0: return TEAL_E      
