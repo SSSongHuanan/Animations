@@ -1,154 +1,310 @@
 import streamlit as st
 
-def show_notebook_module():
-    st.title("📖 Theoretical Notebooks")
-    st.markdown("""
-    Welcome to the **Digital Notebook**. Here we bridge the gap between abstract mathematics and executable code.
-    Select a topic from the sidebar to dive into the algorithmic mechanics.
-    """)
+# =====================================================
+# Theoretical Notebooks (Optimized UI)
+# - Consistent layout with your other modules
+# - Cleaner typography + right-side "Key ideas" cards
+# - Tabs per chapter: Concept / Math / Pseudocode / Checkpoint
+# =====================================================
 
-    # 1. Sidebar for Blog Navigation
-    topic = st.sidebar.radio(
-        "Select Chapter:",
-        [
-            "1. Dynamic Programming (DP)",
-            "2. Temporal Difference (TD)", 
-            "3. Deep Q-Networks (DQN)"
-        ]
-    )
-
+def _page_header(title: str, subtitle: str):
+    st.header(title)
+    st.caption(subtitle)
     st.divider()
 
-    # 2. Content Routing
-    if topic == "1. Dynamic Programming (DP)":
+
+def _right_card(title: str, bullets=None, body=None):
+    with st.container(border=True):
+        st.markdown(f"#### {title}")
+        if bullets:
+            st.markdown("\n".join([f"- {b}" for b in bullets]))
+        if body:
+            st.markdown(body)
+
+
+def _checkpoint(items):
+    st.markdown("#### Self-check")
+    for it in items:
+        st.checkbox(it, value=False)
+
+
+def show_notebook_module():
+    _page_header(
+        "📖 Theoretical Notebooks",
+        "Bridge **math intuition** ↔ **implementable updates**. Choose a chapter and read it like a mini-lecture.",
+    )
+
+    # ---- Sidebar (simple + consistent) ----
+    st.sidebar.markdown("## 📚 Chapters")
+    topic = st.sidebar.radio(
+        "Select:",
+        [
+            "1. Dynamic Programming (DP)",
+            "2. Temporal Difference (TD)",
+            "3. Deep Q-Networks (DQN)",
+        ],
+    )
+    st.sidebar.divider()
+
+    # ✅ 修复点：多行 markdown 用三引号，避免 Python 字符串跨行语法错误
+    with st.sidebar.expander("How to use this page", expanded=False):
+        st.markdown(
+            """
+- Read **Concept** first for intuition.
+- Then check **Math** for the exact equations.
+- Use **Pseudocode** to connect to code.
+- Finish with **Checkpoint** to test understanding.
+            """
+        )
+
+    # ---- Routing ----
+    if topic.startswith("1."):
         render_dp_article()
-    elif topic == "2. Temporal Difference (TD)":
+    elif topic.startswith("2."):
         render_td_article()
-    elif topic == "3. Deep Q-Networks (DQN)":
+    else:
         render_dqn_article()
 
-# ==========================================
-# Article 1: Dynamic Programming
-# ==========================================
+
+# =====================================================
+# Chapter 1: Dynamic Programming
+# =====================================================
 def render_dp_article():
-    st.header("1. Dynamic Programming: Planning in a Known World")
-    st.caption("Keywords: Model-Based, Bellman Equation, Bootstrap")
+    st.subheader("1. Dynamic Programming (DP)")
+    st.caption("Model-based planning with known dynamics. Keywords: Bellman equation, backup, bootstrapping.")
 
-    st.markdown("""
-    ### 1.1 The Premise
-    Dynamic Programming (DP) methods, such as **Policy Iteration** and **Value Iteration**, assume that the agent has a perfect map of the world. In RL terms, this means we know the **Transition Probability** $P(s'|s,a)$ and the **Reward Function** $R(s,a)$.
-    
-    Because we know the rules of the game, we don't need to explore blindly. We can simply "plan" by solving systems of equations.
+    left, right = st.columns([1.6, 1.0], gap="large")
 
-    ### 1.2 The Bellman Optimality Equation
-    The core of DP is the recursive relationship between the value of a state and the value of its successors. The optimal value function $V^*(s)$ satisfies:
-    """)
+    with right:
+        _right_card(
+            "Key ideas",
+            bullets=[
+                "DP assumes you know the environment model: p(s', r | s, a).",
+                "You can plan without exploration by repeatedly applying Bellman backups.",
+                "Policy Iteration: evaluate then improve. Value Iteration: combine them.",
+            ],
+        )
+        _right_card(
+            "When to use",
+            bullets=[
+                "Small/medium discrete MDPs with known dynamics.",
+                "As a gold-standard baseline for RL environments (ground-truth optimal).",
+            ],
+        )
 
-    st.latex(r"V^*(s) = \max_{a} \sum_{s', r} p(s', r | s, a) [r + \gamma V^*(s')]")
+    with left:
+        tab_concept, tab_math, tab_code, tab_check = st.tabs(
+            ["📝 Concept", "➗ Math", "💻 Pseudocode", "✅ Checkpoint"]
+        )
 
-    st.markdown("""
-    ### 1.3 Policy Iteration vs. Value Iteration
-    While both algorithms converge to the same optimal policy, they take different paths:
+        with tab_concept:
+            st.markdown(
+                """
+### 1.1 Premise
+Dynamic Programming methods assume the agent has a *perfect map* of the world:
+- Transition model: **p(s′, r | s, a)**
+- Reward function is included in that model (or available separately)
 
-    * **Policy Iteration** separates the process into two distinct, alternating phases:
-        1.  **Evaluation:** Calculate $V_\pi(s)$ for the current policy (often computationally expensive).
-        2.  **Improvement:** Update $\pi$ to be greedy with respect to $V_\pi$.
-    
-    * **Value Iteration** truncates the evaluation step. It iterates on the value function directly using the "max" operator. It effectively combines evaluation and improvement into a single, aggressive update sweep.
-    
-    ### 1.4 Pseudocode (Value Iteration)
-    """)
+Because the rules are known, we don’t need to explore blindly—we can **compute** expected returns.
+                """
+            )
+            st.info("DP is the planning baseline: it solves the MDP directly via repeated backups.")
 
-    st.code("""
-# Initialize V(s) arbitrarily
+        with tab_math:
+            st.markdown("### 1.2 Bellman Optimality Backup (state value)")
+            st.latex(r"V^*(s)=\max_a\sum_{s',r}p(s',r\mid s,a)\,[r+\gamma V^*(s')]")
+
+            st.markdown("### 1.3 Policy Iteration vs. Value Iteration (high level)")
+            st.markdown(
+                "- **Policy Iteration**: alternate *Policy Evaluation* and *Policy Improvement*.\n"
+                "- **Value Iteration**: repeatedly apply the optimality backup; derive policy from V."
+            )
+
+        with tab_code:
+            st.markdown("### 1.4 Value Iteration (pseudocode)")
+            st.code(
+                """# Initialize V(s) arbitrarily
 while delta > theta:
     delta = 0
     for s in States:
         v = V[s]
-        # The "Max" operator acts as the improvement
-        V[s] = max([sum([p * (r + gamma * V[s_]) 
-                   for p, s_, r, _ in env.P[s][a]]) 
-                   for a in Actions])
+        V[s] = max_a sum_{s',r} p(s',r|s,a) * (r + gamma * V[s'])
         delta = max(delta, abs(v - V[s]))
-    """, language="python")
+""",
+                language="python",
+            )
 
-# ==========================================
-# Article 2: Temporal Difference
-# ==========================================
+        with tab_check:
+            _checkpoint(
+                [
+                    "I can explain what 'model-based' means in DP.",
+                    "I can read the Bellman optimality equation and identify each term.",
+                    "I know the difference between Policy Iteration and Value Iteration.",
+                ]
+            )
+
+
+# =====================================================
+# Chapter 2: Temporal Difference
+# =====================================================
 def render_td_article():
-    st.header("2. Temporal Difference Learning: Learning from Experience")
-    st.caption("Keywords: Model-Free, Q-Learning, SARSA, Bootstrapping")
+    st.subheader("2. Temporal Difference (TD) Learning")
+    st.caption("Model-free learning from experience. Keywords: TD error, on-policy, off-policy.")
 
-    st.markdown("""
-    ### 2.1 Moving Beyond the Model
-    In most real-world scenarios (like driving a car or trading stocks), we do **not** know the transition dynamics $P(s'|s,a)$. We cannot calculate expectations directly. Instead, we must sample the environment.
-    
-    **Temporal Difference (TD)** learning combines two ideas:
-    1.  **Monte Carlo:** Learn from raw experience (samples).
-    2.  **DP:** Update estimates based on other learned estimates (bootstrapping).
+    left, right = st.columns([1.6, 1.0], gap="large")
 
-    ### 2.2 SARSA (On-Policy)
-    SARSA is "safe". It updates the Q-value based on the action the agent *actually* took.
-    
-    $$Q(S, A) \\leftarrow Q(S, A) + \\alpha [R + \\gamma Q(S', A') - Q(S, A)]$$
-    
-    If the agent explores (takes a random bad action $A'$), SARSA will penalize the previous state $S$. This leads to safer, more conservative paths (e.g., staying far away from the cliff).
+    with right:
+        _right_card(
+            "Key ideas",
+            bullets=[
+                "TD learns from samples (no model needed).",
+                "Bootstrapping: update uses current estimates as targets.",
+                "SARSA is on-policy (uses actual next action). Q-learning is off-policy (uses max).",
+            ],
+        )
+        _right_card(
+            "Mental model",
+            bullets=[
+                "SARSA learns a policy that matches its exploration behavior (often safer).",
+                "Q-learning learns the greedy optimal policy, even while exploring (often riskier).",
+            ],
+        )
 
-    ### 2.3 Q-Learning (Off-Policy)
-    Q-Learning is "optimistic". It updates the Q-value assuming the agent will take the *best* possible action next, regardless of what it actually does.
-    
-    $$Q(S, A) \\leftarrow Q(S, A) + \\alpha [R + \\gamma \\max_{a} Q(S', a) - Q(S, A)]$$
-    
-    Even if the agent falls off a cliff due to exploration ($\epsilon$-greedy), Q-learning considers that a "random accident" and continues to learn the optimal path right next to the edge.
+    with left:
+        tab_concept, tab_math, tab_code, tab_check = st.tabs(
+            ["📝 Concept", "➗ Math", "💻 Code Snippets", "✅ Checkpoint"]
+        )
 
-    ### 2.4 Comparison Snippet
-    """)
+        with tab_concept:
+            st.markdown(
+                """
+### 2.1 Why TD?
+In most real-world problems we **don't** know the transition model. TD methods learn from interaction.
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**SARSA Update**")
-        st.code("""
-next_action = choose_action(next_state)
-target = reward + gamma * Q[next_state][next_action]
-error = target - Q[state][action]
-Q[state][action] += alpha * error
-        """, language="python")
-    with col2:
-        st.markdown("**Q-Learning Update**")
-        st.code("""
-# No next_action needed for target
-target = reward + gamma * np.max(Q[next_state])
-error = target - Q[state][action]
-Q[state][action] += alpha * error
-        """, language="python")
+TD combines:
+1) **Monte Carlo**: learn from experience samples  
+2) **DP**: bootstrap from existing value estimates
+                """
+            )
 
-# ==========================================
-# Article 3: DQN
-# ==========================================
+        with tab_math:
+            st.markdown("### 2.2 SARSA (On-policy)")
+            st.latex(r"Q(s,a)\leftarrow Q(s,a)+\alpha\,[r+\gamma Q(s',a')-Q(s,a)]")
+
+            st.markdown("### 2.3 Q-learning (Off-policy)")
+            st.latex(r"Q(s,a)\leftarrow Q(s,a)+\alpha\,[r+\gamma\max_{a'}Q(s',a')-Q(s,a)]")
+
+            st.info("Key difference: SARSA targets Q(s′,a′) from the behavior policy; Q-learning targets max over actions.")
+
+        with tab_code:
+            st.markdown("**SARSA update**")
+            st.code(
+                """next_action = choose_action(next_state)  # ε-greedy
+        target = reward + gamma * Q[next_state][next_action]
+        Q[state][action] += alpha * (target - Q[state][action])
+        """,
+                language="python",
+            )
+
+            st.markdown("**Q-learning update**")
+            st.code(
+                """target = reward + gamma * max(Q[next_state])
+        Q[state][action] += alpha * (target - Q[state][action])
+        """,
+                language="python",
+            )
+
+            st.info("Difference: SARSA uses Q(s′,a′) (on-policy), while Q-learning uses maxₐ′Q(s′,a′) (off-policy).")
+
+
+        with tab_check:
+            _checkpoint(
+                [
+                    "I can define TD error in words (prediction error).",
+                    "I can explain on-policy vs off-policy using SARSA vs Q-learning.",
+                    "I can predict which one is safer in CliffWalking and why.",
+                ]
+            )
+
+
+# =====================================================
+# Chapter 3: DQN
+# =====================================================
 def render_dqn_article():
-    st.header("3. Deep Q-Networks (DQN): Scaling Up")
-    st.caption("Keywords: Neural Networks, Function Approximation, Replay Buffer")
+    st.subheader("3. Deep Q-Networks (DQN)")
+    st.caption("Scaling Q-learning with function approximation. Keywords: replay buffer, target network.")
 
-    st.markdown("""
-    ### 3.1 The Curse of Dimensionality
-    Tabular methods (creating a matrix for $Q(s,a)$) work for small grid worlds. But what if the state is an image (Atari games)? A $84 \\times 84$ image has $256^{84 \\times 84}$ possible states. A table is impossible.
-    
-    **Solution:** Use a Neural Network to approximate the function: $Q(s, a; \\theta) \\approx Q^*(s, a)$.
+    left, right = st.columns([1.6, 1.0], gap="large")
 
-    ### 3.2 Stabilizing the Unstable
-    Naively connecting a Deep Network to RL is unstable because RL data is not i.i.d. (independent and identically distributed). DQN introduced two key innovations:
+    with right:
+        _right_card(
+            "Key ideas",
+            bullets=[
+                "Replace Q-table with a neural network Q(s,a; θ).",
+                "Replay buffer makes training data closer to i.i.d.",
+                "Target network θ⁻ stabilizes the bootstrapped target.",
+            ],
+        )
+        _right_card(
+            "Common failure modes",
+            bullets=[
+                "Divergence from moving targets (no target network).",
+                "Correlated samples (no replay).",
+                "Overestimation bias (often improved with Double DQN).",
+            ],
+        )
 
-    #### A. Experience Replay
-    Instead of learning from the current step immediately, we store transitions $(s, a, r, s')$ in a massive buffer. We then sample a random **batch** to train the network. This breaks the temporal correlation between samples.
+    with left:
+        tab_concept, tab_math, tab_code, tab_check = st.tabs(
+            ["📝 Concept", "➗ Math", "💻 Training Loop", "✅ Checkpoint"]
+        )
 
-    #### B. Target Network
-    In standard Q-learning, the target changes every step. This is like a dog chasing its own tail.
-    DQN freezes the "Target Network" parameters $\\theta^-$ for fixed intervals (e.g., every 1000 steps), creating a stable target for the "Policy Network" to learn towards.
+        with tab_concept:
+            st.markdown(
+                """
+### 3.1 Curse of dimensionality
+Tabular methods work for small discrete state spaces. With images or continuous states, tables are impossible.
 
-    ### 3.3 The Loss Function
-    The network minimizes the Mean Squared Error (MSE) between the prediction and the target:
-    """)
+DQN approximates the action-value function with a neural network:  
+**Q(s,a; θ) ≈ Q*(s,a)**
 
-    st.latex(r"L(\theta) = \mathbb{E}_{(s,a,r,s') \sim U(D)} \left[ \left( r + \gamma \max_{a'} Q(s', a'; \theta^-) - Q(s, a; \theta) \right)^2 \right]")
-    
-    st.info("The gradient descent update allows the agent to generalize: learning about one state helps it understand similar states.")
+### 3.2 Two stabilizers
+- **Experience replay**: store transitions and sample random minibatches.
+- **Target network**: compute targets using a slowly-updated copy of parameters.
+                """
+            )
+
+        with tab_math:
+            st.markdown("### 3.3 TD target and loss")
+            st.latex(r"y = r + \gamma\max_{a'}Q(s',a';\theta^-)")
+            st.latex(r"L(\theta)=\mathbb{E}\big[(y - Q(s,a;\theta))^2\big]")
+            st.info("Intuition: fit Q(s,a;θ) to a relatively stable target y computed using θ⁻.")
+
+        with tab_code:
+            st.code(
+                """# Pseudocode (high level)
+replay = ReplayBuffer()
+for step in range(num_steps):
+    a = epsilon_greedy(Q, s)
+    s2, r, done = env.step(a)
+    replay.add(s, a, r, s2, done)
+
+    batch = replay.sample(B)
+    y = r + gamma * (1-done) * max_a' Q_target(s2, a')
+    loss = mse(Q(s,a), y)
+    optimizer.step(loss)
+
+    if step % target_update == 0:
+        Q_target.load_state_dict(Q.state_dict())
+""",
+                language="python",
+            )
+
+        with tab_check:
+            _checkpoint(
+                [
+                    "I can explain why a Q-table fails for image inputs.",
+                    "I can explain why replay helps.",
+                    "I can explain why a target network helps.",
+                ]
+            )
