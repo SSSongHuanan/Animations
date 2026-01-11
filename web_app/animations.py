@@ -20,10 +20,11 @@ def show_animation_library():
 
     # 你的视频字典
     video_dict = {
-        "Deep Q-Network (DQN)": ("DQN", "DQNDemo"),
+        "Value Iteration": ("Value_iteration", "ValueIterationGeneral"),
         "Policy Iteration": ("Policy_iteration", "PolicyIteration"), 
         "Q-Learning": ("QLearning", "QLearningDemo"),
-        "SARSA": ("SARSA", "SARSADemo")
+        "SARSA": ("SARSA", "SARSADemo"),
+        "Deep Q-Network (DQN)": ("DQN", "DQNDemo")
     }
 
     selected_video = st.selectbox("Select an Algorithm to Watch:", list(video_dict.keys()))
