@@ -1,141 +1,82 @@
 from manim import *
 import numpy as np
-import random
 
 
-class SARSADemo(Scene):
+class DQNDemo(Scene):
+    """
+    DQN 演示（GridWorld + Neural Net + Q 值柱状图）
+
+    修复点（相对你原版 DQN.py）：
+    - 不再用 cell.set_stroke(width=0) “取消高亮”，避免网格线逐步消失（原代码会把格子边框直接变为 0）；
+    - 右侧柱状图不再依赖 bar_bg_group[b_idx*2] 这种脆弱索引，而是显式保存每个 bar 的背景框；
+    - 目标 Q 的虚线位置按 target_q 值计算，不再固定 shift(UP*0.3)；
+    - Intro 里修复了 Rectangle(grid_xstep=...) 这类不兼容参数，并避免 next_to(新建一个Rectangle/Circle) 导致的错位；
+    - 自适应布局：左(网格) / 中(网络) / 右(柱状图) 互不遮挡。
+    """
+
     def construct(self):
-        config.max_files_cached = 5000
+        # --- 0. 全局配置 ---
+        self.grid_size = 3
+        self.cell_size = 1.15
+        self.grid_spacing = 1.25
 
-        # seed
-        self.seed = 42
-        np.random.seed(self.seed)
-        random.seed(self.seed)
-
-        # params
-        self.alpha = 0.5
-        self.gamma = 0.9
-        self.epsilon = 0.3
-        self.max_epsilon = 0.3
-
-        # Intro 页整体慢 3 倍
-        self.intro_slow = 3.0
-
-        self.grid_size = 5
-        self.cell_size = 1.0
-        self.grid_spacing = 1.1
-
-        # actions: 0=UP,1=DOWN,2=LEFT,3=RIGHT
-        self.actions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-        self.action_vecs = [UP, DOWN, LEFT, RIGHT]
-
-        # screen arrow direction memory (for stable display)
-        self.arrow_directions = {}
-
-        self.initial_action_idx = 3  # init arrows to RIGHT
-        self.visible_arrows = set()
-
-        # chart state
-        self.last_steps_point = None
-        self.last_return_point = None
-        self.steps_hist = []
-        self.returns_hist = []
-
-        # Intro
+        # --- 1. 理论介绍（参照 policy_iteration 的多页 Intro 风格） ---
         self.play_intro()
 
-        # Main
-        self.play_sarsa()
+        # --- 2. 核心演示 ---
+        self.play_dqn_process()
 
-    # ---------- helpers ----------
-    def moving_avg(self, values, window=5):
-        n = len(values)
-        if n == 0:
-            return 0.0
-        k = min(window, n)
-        return float(np.mean(values[-k:]))
+    # -------------------------------------------------------------------------
+    # Intro
+    # -------------------------------------------------------------------------
+    def _mini_grid_in_square(self, side_len=2.0, step=0.5, stroke=GREY_B, stroke_width=1):
+        """在一个正方形内画“表格线”，用于 Q-Table 的视觉示意。"""
+        lines = VGroup()
+        half = side_len / 2
+        # 只画内部线（不含边框），避免太粗
+        n = int(side_len / step)
+        # 内部线的位置：-half + k*step, k=1..n-1
+        for k in range(1, n):
+            x = -half + k * step
+            v = Line([x, -half, 0], [x, half, 0], color=stroke, stroke_width=stroke_width)
+            h = Line([-half, x, 0], [half, x, 0], color=stroke, stroke_width=stroke_width)
+            lines.add(v, h)
+        return lines
 
-    # greedy action: prefer last shown arrow if tied
-    def best_action_det(self, r, c):
-        q = self.q_table[r, c]
-        max_val = np.max(q)
-        best = np.flatnonzero(q == max_val)
-
-        saved_act = self.arrow_directions.get((r, c), None)
-        if saved_act is not None and saved_act in best:
-            return int(saved_act)
-
-        return int(np.random.choice(best))
-
-    # for displaying greedy policy arrows
-    def greedy_for_display(self, qvals, prefer_action_idx=None):
-        max_val = float(np.max(qvals))
-        best = np.flatnonzero(qvals == max_val)
-        if len(best) == 1:
-            return int(best[0])
-        if prefer_action_idx is not None and prefer_action_idx in best:
-            return int(prefer_action_idx)
-        return int(np.random.choice(best))
-
-    def get_timing(self, episode):
-        if episode == 1:
-            return dict(compass=0.14, move=0.34, q=0.22, hit=0.26, flash=0.22, reset=0.10, next_a=0.08)
-        else:
-            return dict(compass=0.07, move=0.16, q=0.11, hit=0.14, flash=0.12, reset=0.06, next_a=0.04)
-
-    def get_step_result(self, curr_pos, action_idx, rewards):
-        r, c = curr_pos
-        di, dj = self.actions[action_idx]
-        next_r, next_c = r + di, c + dj
-        hit_wall = False
-
-        if 0 <= next_r < self.grid_size and 0 <= next_c < self.grid_size:
-            reward = rewards[next_r, next_c]
-            next_pos = (next_r, next_c)
-        else:
-            reward = -0.1
-            next_pos = curr_pos
-            hit_wall = True
-
-        return next_pos, reward, hit_wall
-
-    # ε-greedy selection helper
-    def epsilon_greedy(self, r, c, epsilon):
-        greedy_idx = self.best_action_det(r, c)
-        if np.random.rand() < epsilon:
-            return int(np.random.randint(4)), True, greedy_idx
-        return int(greedy_idx), False, greedy_idx
-
-    # ---------- Intro (multi-page) ----------
     def play_intro(self):
-        """SARSA Intro"""
-        self.title = Text("SARSA", font_size=48, color=BLUE).to_edge(UP)
-        env_text = Text("Problem: 5x5 Grid Maze Navigation", font_size=32, color=TEAL).next_to(
-            self.title, DOWN, buff=0.3
-        )
+        """参照 policy_iteration 的风格：多页介绍 + 页码 + 自适应排版。"""
+        self.intro_slow = 2.4
 
-        self.play(FadeIn(self.title), FadeIn(env_text))
-        self.wait(0.3 * self.intro_slow)
+        # 顶部标题
+        title = Text("Deep Q-Network (DQN)", font_size=48, color=BLUE).to_edge(UP)
+        env_text = Text(
+            "Problem: 3x3 GridWorld Navigation", font_size=30, color=TEAL
+        ).next_to(title, DOWN, buff=0.25)
+
+        self.play(FadeIn(title), FadeIn(env_text))
+        self.wait(0.25 * self.intro_slow)
 
         total_pages = 5
 
-        def page_counter(n):
+        # --- Helpers ---
+        def page_counter(n: int):
             return Text(f"{n}/{total_pages}", font_size=18, color=GREY_B).to_corner(DR).shift(
                 UP * 0.35 + LEFT * 0.35
             )
 
-        def fit_to_intro_area(mob, top_anchor, side_margin=0.7, bottom_margin=0.55, top_buff=0.55):
+        def fit_to_intro_area(mob: Mobject, top_anchor: Mobject, side_margin=0.7, bottom_margin=0.55, top_buff=0.55):
             max_w = config.frame_width - 2 * side_margin
             top_y = top_anchor.get_bottom()[1] - top_buff
             bottom_y = -config.frame_height / 2 + bottom_margin
             max_h = top_y - bottom_y
 
+            # 只缩小不放大
             if mob.width > max_w:
                 mob.scale_to_fit_width(max_w)
             if mob.height > max_h:
                 mob.scale_to_fit_height(max_h)
 
-        def show_page(n, group, keep_env=True, hold=1.4):
+        def show_page(n: int, group: VGroup, keep_env=True, hold=1.5):
             fit_to_intro_area(group, env_text)
             group.next_to(env_text, DOWN, buff=0.65).align_to(env_text, LEFT)
 
@@ -150,718 +91,592 @@ class SARSADemo(Scene):
             else:
                 self.play(FadeOut(group, shift=LEFT), FadeOut(counter), FadeOut(env_text), run_time=fade_out_rt)
 
-        # --- Page 1 ---
-        p1_t = Text("1. What is SARSA?", font_size=30, color=YELLOW)
-        p1_desc = Text(
-            "On-policy TD Control: learn Q(s,a) following the behavior policy",
-            font_size=22,
-            color=GREY_B,
-        )
+        # -----------------------------------------------------------------
+        # Page 1: What is DQN?
+        # -----------------------------------------------------------------
+        p1_t = Text("1. What is DQN?", font_size=30, color=YELLOW)
+        p1_desc = Text("Model-free Value-based RL (Q-learning + Neural Network)", font_size=22, color=GREY_B)
         p1_header = VGroup(p1_t, p1_desc).arrange(DOWN, aligned_edge=LEFT, buff=0.12)
 
-        p1_eq = MathTex(
-            r"Q(s,a)\leftarrow Q(s,a)+\alpha\Big[r+\gamma Q(s',a') - Q(s,a)\Big]",
-            font_size=36,
-        )
-        if p1_eq.width > config.frame_width - 1.5:
-            p1_eq.scale_to_fit_width(config.frame_width - 1.5)
+        p1_eq1 = MathTex(r"Q_\theta(s,a)\approx Q^*(s,a)", font_size=36)
+        p1_eq2 = MathTex(r"\pi(s)=\arg\max_a\,Q_\theta(s,a)", font_size=36)
+        p1_eqs = VGroup(p1_eq1, p1_eq2).arrange(DOWN, aligned_edge=LEFT, buff=0.22)
 
         p1_bul = VGroup(
-            Text("• Update after every step: (s, a, r, s', a')", font_size=22, color=WHITE),
-            Text("• a' is chosen by the SAME ε-greedy policy (on-policy)", font_size=22, color=WHITE),
-            Text("• Compared to Q-learning: no max over a' in the update", font_size=22, color=WHITE),
+            Text("• Learns from interaction (no model P,R needed)", font_size=22, color=WHITE),
+            Text("• Outputs Q-values for actions: U / D / L / R", font_size=22, color=WHITE),
+            Text("• Uses TD target + loss to update network parameters", font_size=22, color=WHITE),
         ).arrange(DOWN, aligned_edge=LEFT, buff=0.18)
 
-        p1_group = VGroup(p1_header, p1_eq, p1_bul).arrange(DOWN, aligned_edge=LEFT, buff=0.32)
-        p1_group.next_to(env_text, DOWN, buff=0.65).align_to(env_text, LEFT)
-        show_page(1, p1_group, keep_env=True, hold=1.6)
+        p1_group = VGroup(p1_header, p1_eqs, p1_bul).arrange(DOWN, aligned_edge=LEFT, buff=0.4)
+        show_page(1, p1_group, keep_env=True, hold=1.55)
 
-        # --- Page 2 ---
-        p2_t = Text("2. Environment & Rewards", font_size=30, color=YELLOW)
+        # -----------------------------------------------------------------
+        # Page 2: From Q-Table to Neural Net
+        # -----------------------------------------------------------------
+        p2_t = Text("2. From Q-Table to Neural Network", font_size=30, color=YELLOW)
+        p2_desc = Text("Replace the table with a function approximator", font_size=22, color=GREY_B)
+        p2_header = VGroup(p2_t, p2_desc).arrange(DOWN, aligned_edge=LEFT, buff=0.12)
 
-        def legend_item(color, label, value_text):
-            box = Square(
-                side_length=0.35, fill_color=color, fill_opacity=0.9, stroke_color=WHITE, stroke_width=1.5
-            )
-            t1 = Text(label, font_size=24, color=WHITE)
-            t2 = Text(value_text, font_size=24, color=GREY_B)
-            return VGroup(box, t1, t2).arrange(RIGHT, buff=0.25, aligned_edge=DOWN)
+        # Q-table -> NN diagram (静态展示，避免遮挡)
+        qbox = Square(side_length=1.65, color=WHITE, stroke_width=2)
+        qgrid = self._mini_grid_in_square(side_len=1.65, step=0.4125, stroke=GREY_C, stroke_width=1)
+        cross = Cross(qbox, stroke_color=RED, stroke_width=7)
+        qtable_label = Text("Q-Table", font_size=20).next_to(qbox, DOWN, buff=0.15)
+        qtable_viz = VGroup(qbox, qgrid, cross, qtable_label)
 
-        L1 = legend_item(TEAL_E, "Goal", "+1.0 (terminal)")
-        L2 = legend_item(MAROON_E, "Trap", "-1.0 (flash only)")
-        L3 = legend_item(ORANGE, "Mud", "-0.5")
-        L4 = legend_item(DARK_GRAY, "Step", "-0.04 per move")
-        wall = Square(side_length=0.35, fill_color=BLACK, fill_opacity=0.0, stroke_color=RED, stroke_width=3)
-        L5 = VGroup(
-            wall,
-            Text("Wall hit", font_size=24, color=WHITE),
-            Text("-0.1 penalty (stay)", font_size=24, color=GREY_B),
-        ).arrange(RIGHT, buff=0.25, aligned_edge=DOWN)
+        nn_circle = Circle(radius=0.45, color=BLUE, stroke_width=2).set_fill(BLUE_E, 0.35)
+        nn_label = Text("Neural Net", font_size=20).next_to(nn_circle, DOWN, buff=0.15)
+        nn_viz = VGroup(nn_circle, nn_label)
 
-        legend = VGroup(L1, L2, L3, L4, L5).arrange(DOWN, aligned_edge=LEFT, buff=0.22)
-        start_dot = Dot(color=BLUE, radius=0.10)
-        start_text = Text("Start at top-left (0,0)", font_size=24, color=WHITE)
-        start_row = VGroup(start_dot, start_text).arrange(RIGHT, buff=0.25)
-        p2_group = VGroup(p2_t, legend, start_row).arrange(DOWN, aligned_edge=LEFT, buff=0.38)
-        show_page(2, p2_group, keep_env=True, hold=1.6)
+        ends = VGroup(qtable_viz, nn_viz).arrange(RIGHT, buff=2.2)
+        arrow = Arrow(qtable_viz.get_right(), nn_viz.get_left(), buff=0.22, stroke_width=5)
 
-        # --- Page 3 ---
-        p3_t = Text("3. Action Selection (ε-greedy)", font_size=30, color=YELLOW)
-        p3_eq = MathTex(
-            r"a=\begin{cases}\text{random action} & \text{w.p. }\epsilon\\"
-            r"\arg\max_a Q(s,a) & \text{w.p. }1-\epsilon\end{cases}",
-            font_size=34,
-        ).shift(RIGHT * 0.25)
-        p3_note = VGroup(
-            Text("• SARSA uses the SAME ε-greedy policy to pick a and a'", font_size=24, color=WHITE),
-            Text("• Purple agent = exploring (random action)", font_size=24, color=PURPLE),
-            Text("• Blue agent = exploiting (greedy action)", font_size=24, color=BLUE),
-            Text("• Green agent = final greedy demo", font_size=24, color=GREEN),
+        expl = VGroup(
+            VGroup(Text("Approximate", font_size=22, color=YELLOW), MathTex("Q(s,a)", color=YELLOW).scale(0.9)).arrange(RIGHT, buff=0.20),
+            Text("with a Neural Network", font_size=22, color=YELLOW),
+        ).arrange(DOWN, buff=0.06)
+
+        if expl.width > arrow.width * 0.98:
+            expl.scale_to_fit_width(arrow.width * 0.98)
+        expl.next_to(arrow, UP, buff=0.12)
+
+        diagram = VGroup(ends, arrow, expl)
+        diagram.shift(RIGHT * 0.55)  # 视觉居中
+
+        p2_bul = VGroup(
+            Text("• Q-table size grows with |S| × |A|", font_size=22, color=WHITE),
+            Text("• Network generalizes across similar states", font_size=22, color=WHITE),
         ).arrange(DOWN, aligned_edge=LEFT, buff=0.18)
-        demo_dots = VGroup(
-            VGroup(Dot(color=PURPLE, radius=0.14), Text("Explore", font_size=22, color=PURPLE)).arrange(RIGHT, buff=0.2),
-            VGroup(Dot(color=BLUE, radius=0.14), Text("Exploit", font_size=22, color=BLUE)).arrange(RIGHT, buff=0.2),
-            VGroup(Dot(color=GREEN, radius=0.14), Text("Final demo", font_size=22, color=GREEN)).arrange(RIGHT, buff=0.2),
-        ).arrange(RIGHT, buff=0.8)
-        p3_group = VGroup(p3_t, p3_eq, p3_note, demo_dots).arrange(DOWN, aligned_edge=LEFT, buff=0.35)
-        show_page(3, p3_group, keep_env=True, hold=1.7)
 
-        # --- Page 4 ---
-        p4_t = Text("4. What you will see on screen", font_size=30, color=YELLOW)
-        p4_items = VGroup(
-            Text("• Gold arrows in grid = greedy policy  argmax_a Q(s,a)", font_size=24, color=GOLD),
-            Text("  (But SARSA update uses the actually chosen a' at s')", font_size=22, color=GREY_B),
-            Text("• Number in each cell = max_a Q(s,a) (green/red = + / - )", font_size=24, color=WHITE),
-            Text("• Right panel: Explore%, Episode, Steps, Action compass", font_size=24, color=WHITE),
-            Text("• Charts: moving average of Steps & Return (first 24 episodes shown)", font_size=24, color=WHITE),
+        p2_group = VGroup(p2_header, diagram, p2_bul).arrange(DOWN, aligned_edge=LEFT, buff=0.42)
+        show_page(2, p2_group, keep_env=True, hold=1.55)
+
+        # -----------------------------------------------------------------
+        # Page 3: State encoding & outputs
+        # -----------------------------------------------------------------
+        p3_t = Text("3. State Encoding & Outputs", font_size=30, color=YELLOW)
+        p3_desc = Text("In this demo: state = (x, y) coordinates", font_size=22, color=GREY_B)
+        p3_header = VGroup(p3_t, p3_desc).arrange(DOWN, aligned_edge=LEFT, buff=0.12)
+
+        p3_eq1 = MathTex(r"s=(x,y)", font_size=40)
+        p3_eq2 = MathTex(r"Q_\theta(s)=[Q_U,\,Q_D,\,Q_L,\,Q_R]", font_size=34)
+        p3_eqs = VGroup(p3_eq1, p3_eq2).arrange(DOWN, aligned_edge=LEFT, buff=0.25)
+
+        p3_bul = VGroup(
+            Text("• 2 inputs → 2 state features (x and y)", font_size=22, color=WHITE),
+            Text("• 4 outputs → Q-values for actions (U,D,L,R)", font_size=22, color=WHITE),
+            Text("• Other option: one-hot state (3×3 = 9 dims)", font_size=22, color=WHITE),
         ).arrange(DOWN, aligned_edge=LEFT, buff=0.18)
-        p4_group = VGroup(p4_t, p4_items).arrange(DOWN, aligned_edge=LEFT, buff=0.35)
+
+        p3_group = VGroup(p3_header, p3_eqs, p3_bul).arrange(DOWN, aligned_edge=LEFT, buff=0.42)
+        show_page(3, p3_group, keep_env=True, hold=1.55)
+
+        # -----------------------------------------------------------------
+        # Page 4: TD Target & Loss
+        # -----------------------------------------------------------------
+        p4_t = Text("4. TD Target & Loss", font_size=30, color=YELLOW)
+        p4_desc = Text("Train the network by minimizing the TD error", font_size=22, color=GREY_B)
+        p4_header = VGroup(p4_t, p4_desc).arrange(DOWN, aligned_edge=LEFT, buff=0.12)
+
+        p4_eq1 = MathTex(r"y=r+\gamma\max_{a'}Q_{\theta^-}(s',a')", font_size=34)
+        p4_eq2 = MathTex(r"L=(y-Q_\theta(s,a))^2", font_size=36)
+        p4_eqs = VGroup(p4_eq1, p4_eq2).arrange(DOWN, aligned_edge=LEFT, buff=0.22)
+
+        # 小图例（对应你右侧柱状图的视觉符号）
+        legend_items = VGroup(
+            VGroup(Square(0.18, fill_opacity=1, fill_color=GREEN, stroke_width=0), Text("Q-value bars", font_size=22, color=WHITE)).arrange(RIGHT, buff=0.25),
+            VGroup(Square(0.18, fill_opacity=1, fill_color=YELLOW, stroke_width=0), Text("Chosen action", font_size=22, color=WHITE)).arrange(RIGHT, buff=0.25),
+            VGroup(DashedLine(LEFT * 0.2, RIGHT * 0.2, color=RED, dash_length=0.06, stroke_width=2), Text("TD Target", font_size=22, color=WHITE)).arrange(RIGHT, buff=0.25),
+            VGroup(Line(LEFT * 0.2, RIGHT * 0.2, color=RED, stroke_width=4), Text("Loss (error)", font_size=22, color=WHITE)).arrange(RIGHT, buff=0.25),
+        ).arrange(DOWN, aligned_edge=LEFT, buff=0.18)
+
+        p4_group = VGroup(p4_header, p4_eqs, legend_items).arrange(DOWN, aligned_edge=LEFT, buff=0.42)
         show_page(4, p4_group, keep_env=True, hold=1.6)
 
-        # --- Page 5 ---
-        p5_t = Text("5. Training Schedule", font_size=30, color=YELLOW)
+        # -----------------------------------------------------------------
+        # Page 5: Demo schedule
+        # -----------------------------------------------------------------
+        p5_t = Text("5. Demo Schedule", font_size=30, color=YELLOW)
 
-        def stage_block(title, subtitle, color_fill):
+        def stage_block(title_txt: str, subtitle_txt: str, color_fill):
             box_width = 9.0
             box = RoundedRectangle(
-                corner_radius=0.15,
-                height=1.15,
-                width=box_width,
-                fill_color=color_fill,
-                fill_opacity=0.25,
-                stroke_color=WHITE,
-                stroke_width=2,
+                corner_radius=0.15, height=1.10, width=box_width,
+                fill_color=color_fill, fill_opacity=0.25,
+                stroke_color=WHITE, stroke_width=2,
             )
-            t = Text(title, font_size=24, color=WHITE)
-            s = Text(subtitle, font_size=18, color=GREY_B)
-
+            t = Text(title_txt, font_size=24, color=WHITE)
+            s = Text(subtitle_txt, font_size=18, color=GREY_B)
             vg = VGroup(t, s).arrange(DOWN, aligned_edge=LEFT, buff=0.10)
-            max_text_width = box_width - 0.6
-            if vg.width > max_text_width:
-                vg.scale_to_fit_width(max_text_width)
-
+            if vg.width > box_width - 0.6:
+                vg.scale_to_fit_width(box_width - 0.6)
             vg.move_to(box.get_center()).align_to(box, LEFT).shift(RIGHT * 0.25)
             return VGroup(box, vg)
 
-        st1 = stage_block(
-            "Episodes 1–5  (visual, slow)",
-            "up to 30 steps per episode • ε starts 0.30 and decays ×0.85",
-            BLUE_E,
-        )
-        st2 = stage_block(
-            "Episodes 6–24  (backend, fast)",
-            "up to 50 steps per episode • ε fixed at 0.05 • charts update quickly",
-            YELLOW_E,
-        )
-        st3 = stage_block(
-            "Episode 25  (final demo)",
-            "pure greedy run (green agent) • up to 12 steps",
-            GREEN_E,
-        )
-        timeline = VGroup(st1, st2, st3).arrange(DOWN, aligned_edge=LEFT, buff=0.28)
+        st1 = stage_block("Step A: Forward Pass", "State → Neural Net → 4 Q-values", BLUE_E)
+        st2 = stage_block("Step B: Choose Action", "Pick argmax Q(s,a) (yellow bar)", TEAL_E)
+        st3 = stage_block("Step C: TD Target & Loss", "Show target (red dashed) and loss", RED_E)
+        st4 = stage_block("Step D: Agent Run", "After training: run an (approx.) optimal path", GREEN_E)
+        timeline = VGroup(st1, st2, st3, st4).arrange(DOWN, aligned_edge=LEFT, buff=0.25)
 
         params_line = VGroup(
-            MathTex(
-                rf"\alpha={self.alpha:.1f}\quad \gamma={self.gamma:.1f}\quad \epsilon_0={self.max_epsilon:.2f}",
-                font_size=30,
-                color=YELLOW,
-            ),
-            Text(f"| Seeds = {self.seed}", font_size=22, color=GREY_B),
+            MathTex(r"\gamma=0.9\quad \text{Grid}=3\times3", font_size=30, color=YELLOW),
+            Text("| Actions = 4", font_size=22, color=GREY_B),
         ).arrange(RIGHT, buff=0.4)
 
         p5_group = VGroup(p5_t, timeline, params_line).arrange(DOWN, aligned_edge=LEFT, buff=0.38)
+        show_page(5, p5_group, keep_env=False, hold=1.9)
 
-        fit_to_intro_area(p5_group, env_text)
-        p5_group.next_to(env_text, DOWN, buff=0.65).align_to(env_text, LEFT)
-
-        counter = page_counter(5)
-        self.play(FadeIn(p5_group, shift=RIGHT), FadeIn(counter), run_time=0.35 * self.intro_slow)
-        self.wait(1.9 * self.intro_slow)
-        self.play(
-            FadeOut(p5_group, shift=LEFT),
-            FadeOut(counter),
-            FadeOut(env_text),
-            self.title.animate.scale(0.8),
-            run_time=0.30 * self.intro_slow,
-        )
+        # End intro: 保留标题，缩小并固定到顶部
+        self.play(title.animate.scale(0.85).to_edge(UP), run_time=0.30 * self.intro_slow)
         self.wait(0.15 * self.intro_slow)
 
-    # ---------- dashboard ----------
-    def create_dashboard(self):
-        panel_bg = RoundedRectangle(
-            corner_radius=0.2,
-            height=6.4,
-            width=6.0,
-            fill_color=BLACK,
-            fill_opacity=1.0,
-            stroke_color=BLUE_E,
-        )
-        panel_bg.to_edge(RIGHT, buff=0.2).shift(DOWN * 0.4)
+    # -------------------------------------------------------------------------
+    # Neural Net Viz
+    # -------------------------------------------------------------------------
+    def create_neural_net(self):
+        """创建一个可视化的神经网络 VGroup"""
+        layers = [2, 5, 4]  # 输入层(x,y), 隐藏层, 输出层(Q-values)
 
-        bg_top = panel_bg.get_top()
-        bg_center = panel_bg.get_center()
-        bg_left = panel_bg.get_left()
-        bg_right = panel_bg.get_right()
-        bg_bottom = panel_bg.get_bottom()
+        neurons = VGroup()
+        edges = VGroup()
 
-        data_row_y = bg_top[1] - 0.6
+        layer_x_spacing = 1.6
+        neuron_y_spacing = 0.6
 
-        self.ep_tracker = ValueTracker(0)
-        self.step_tracker = ValueTracker(0)
-        self.eps_tracker = ValueTracker(self.epsilon)
+        layer_groups = []
 
-        self.eps_label = Text("Explore:", font_size=14, color=PURPLE)
-        self.eps_label.move_to(np.array([bg_left[0] + 1.02, data_row_y, 0]))
-        self.eps_val = always_redraw(
-            lambda: Text(f"{self.eps_tracker.get_value()*100:.0f}%", font_size=16, color=PURPLE).next_to(
-                self.eps_label, RIGHT, buff=0.12
-            )
-        )
+        for i, layer_size in enumerate(layers):
+            layer_group = VGroup()
+            x = i * layer_x_spacing
 
-        self.ep_label = Text("Ep:", font_size=18, color=GREY_B)
-        self.ep_label.move_to(np.array([bg_center[0] - 0.4, data_row_y, 0]))
-        self.ep_val = always_redraw(
-            lambda: Integer(int(self.ep_tracker.get_value()), font_size=24, color=WHITE).next_to(
-                self.ep_label, RIGHT, buff=0.15
-            )
-        )
+            y_start = (layer_size - 1) * neuron_y_spacing / 2
 
-        self.step_label = Text("Steps:", font_size=18, color=GREY_B)
-        self.step_label.move_to(np.array([bg_right[0] - 2.0, data_row_y, 0]))
-        self.step_val = always_redraw(
-            lambda: Integer(int(self.step_tracker.get_value()), font_size=24, color=WHITE).next_to(
-                self.step_label, RIGHT, buff=0.15
-            )
-        )
+            for j in range(layer_size):
+                y = y_start - j * neuron_y_spacing
+                circle = Circle(
+                    radius=0.12,
+                    color=WHITE,
+                    stroke_width=2,
+                    fill_color=BLACK,
+                    fill_opacity=1,
+                ).move_to([x, y, 0])
+                layer_group.add(circle)
 
-        sep_line = Line(bg_left + RIGHT * 0.2, bg_right + LEFT * 0.2, color=GREY_E)
-        sep_line.move_to(np.array([bg_center[0], data_row_y - 0.5, 0]))
+            layer_groups.append(layer_group)
+            neurons.add(layer_group)
 
-        compass_label = Text("Action", font_size=16, color=YELLOW)
-        compass_label.move_to(np.array([bg_center[0], data_row_y - 0.95, 0]))
+        # 连接线
+        for i in range(len(layers) - 1):
+            curr_layer = layer_groups[i]
+            next_layer = layer_groups[i + 1]
+            for n1 in curr_layer:
+                for n2 in next_layer:
+                    edge = Line(
+                        n1.get_center(),
+                        n2.get_center(),
+                        stroke_width=1,
+                        color=GREY_C,
+                        stroke_opacity=0.55
+                    )
+                    edges.add(edge)
 
-        self.compass_arrows = VGroup()
-        offsets = [UP, DOWN, LEFT, RIGHT]
-        compass_center = np.array([bg_center[0], data_row_y - 1.85, 0])
+        net_group = VGroup(edges, neurons)
 
-        for i in range(4):
-            arrow = Arrow(
-                start=ORIGIN,
-                end=offsets[i] * 0.6,
-                color=DARK_GRAY,
-                stroke_width=6,
-                buff=0,
-                max_tip_length_to_length_ratio=0.4,
-            )
-            if i == 0:
-                arrow.move_to(compass_center + UP * 0.4)
-            if i == 1:
-                arrow.move_to(compass_center + DOWN * 0.4)
-            if i == 2:
-                arrow.move_to(compass_center + LEFT * 0.4)
-            if i == 3:
-                arrow.move_to(compass_center + RIGHT * 0.4)
-            arrow.save_state()
-            self.compass_arrows.add(arrow)
+        input_label = Text("Input\n(State)", font_size=16, color=BLUE_B).next_to(layer_groups[0], UP, buff=0.15)
+        output_label = Text("Output\n(Q-Values)", font_size=16, color=GREEN_B).next_to(layer_groups[-1], UP, buff=0.15)
 
-        chart_bottom_y = bg_bottom[1] + 0.70
-
-        self.steps_ymin, self.steps_ymax = 0.0, 30.0
-        self.steps_axes = Axes(
-            x_range=[0, 24, 4],
-            y_range=[self.steps_ymin, self.steps_ymax, 5],
-            x_length=4.8,
-            y_length=1.15,
-            axis_config={"color": GREY, "stroke_width": 2, "include_tip": False},
-            x_axis_config={"font_size": 11, "include_numbers": False},
-            y_axis_config={"font_size": 11, "include_numbers": True},
-        )
-
-        self.ret_ymin, self.ret_ymax = -12.0, 2.0
-        self.ret_axes = Axes(
-            x_range=[0, 24, 4],
-            y_range=[self.ret_ymin, self.ret_ymax, 2],
-            x_length=4.8,
-            y_length=1.05,
-            axis_config={"color": GREY, "stroke_width": 2, "include_tip": False},
-            x_axis_config={"font_size": 11, "include_numbers": True},
-            y_axis_config={"font_size": 11, "include_numbers": True},
-        )
-
-        self.ret_axes.move_to(np.array([bg_center[0], chart_bottom_y + 0.45, 0]))
-        self.steps_axes.next_to(self.ret_axes, UP, buff=0.35).align_to(self.ret_axes, LEFT)
-
-        steps_title = Text("Steps", font_size=12, color=YELLOW).next_to(self.steps_axes, UP, buff=0.06).align_to(
-            self.steps_axes, LEFT
-        )
-        ret_title = Text("Return", font_size=12, color=GREEN_B).next_to(self.ret_axes, UP, buff=0.06).align_to(
-            self.ret_axes, LEFT
-        )
-
-        x_label = Text("Ep", font_size=12, color=WHITE).next_to(self.ret_axes.x_axis, UP, buff=0.05)
-        y1_label = Text("S", font_size=12, color=YELLOW).next_to(self.steps_axes.y_axis, RIGHT, buff=0.05)
-        y2_label = Text("R", font_size=12, color=GREEN_B).next_to(self.ret_axes.y_axis, RIGHT, buff=0.05)
-
-        opt = self.optimal_steps
-        y = float(opt)
-        p0 = self.steps_axes.c2p(0, y)
-        p1 = self.steps_axes.c2p(24, y)
-        self.opt_line = DashedLine(p0, p1, dash_length=0.12, color=GREEN, stroke_width=2).set_z_index(1001)
-        self.opt_label = Text(f"Optimal = {opt}", font_size=10, color=GREEN).next_to(
-            self.opt_line, UP, buff=0.04
-        ).align_to(self.opt_line, RIGHT)
-
-        self.dashboard_group = VGroup(
-            panel_bg,
-            self.eps_label,
-            self.eps_val,
-            self.ep_label,
-            self.ep_val,
-            self.step_label,
-            self.step_val,
-            sep_line,
-            compass_label,
-            self.compass_arrows,
-            self.steps_axes,
-            steps_title,
-            y1_label,
-            self.ret_axes,
-            ret_title,
-            x_label,
-            y2_label,
-            self.opt_line,
-            self.opt_label,
-        )
-        self.dashboard_group.set_z_index(1000)
-        self.play(FadeIn(self.dashboard_group, shift=LEFT))
-
-    def update_compass(self, action_idx, is_exploring):
-        active_color = PURPLE if is_exploring else BLUE
-        anims = []
-        for i in range(4):
-            if i == action_idx:
-                anims.append(self.compass_arrows[i].animate.restore().set_color(active_color).scale(1.2))
-            else:
-                anims.append(self.compass_arrows[i].animate.restore())
-        return anims
-
-    def update_epsilon_percent(self, animate=True, run_time=0.25):
-        if animate:
-            self.play(self.eps_tracker.animate.set_value(self.epsilon), run_time=run_time)
-        else:
-            self.eps_tracker.set_value(self.epsilon)
-
-    def update_charts(self, episode, steps, ep_return, window=5, animate=True):
-        if episode > 24:
-            return
-
-        self.steps_hist.append(steps)
-        self.returns_hist.append(ep_return)
-
-        steps_ma = self.moving_avg(self.steps_hist, window=window)
-        ret_ma = self.moving_avg(self.returns_hist, window=window)
-
-        steps_plot = float(np.clip(steps_ma, self.steps_ymin, self.steps_ymax))
-        ret_plot = float(np.clip(ret_ma, self.ret_ymin, self.ret_ymax))
-
-        p_steps = self.steps_axes.c2p(episode, steps_plot)
-        dot_steps = Dot(p_steps, radius=0.05, color=YELLOW).set_z_index(1002)
-        line_steps = None
-        if self.last_steps_point is not None:
-            line_steps = Line(self.last_steps_point, p_steps, stroke_width=2, color=YELLOW).set_z_index(1002)
-        self.last_steps_point = p_steps
-
-        p_ret = self.ret_axes.c2p(episode, ret_plot)
-        dot_ret = Dot(p_ret, radius=0.05, color=GREEN_B).set_z_index(1002)
-        line_ret = None
-        if self.last_return_point is not None:
-            line_ret = Line(self.last_return_point, p_ret, stroke_width=2, color=GREEN_B).set_z_index(1002)
-        self.last_return_point = p_ret
-
-        if animate:
-            anims = []
-            if line_steps:
-                anims.append(Create(line_steps))
-            anims.append(Create(dot_steps))
-            if line_ret:
-                anims.append(Create(line_ret))
-            anims.append(Create(dot_ret))
-            self.play(*anims, run_time=0.28)
-        else:
-            if line_steps:
-                self.add(line_steps)
-            self.add(dot_steps)
-            if line_ret:
-                self.add(line_ret)
-            self.add(dot_ret)
-
-    # ---------- 全局刷新（策略=贪心；Goal 不画箭头） ----------
-    def refresh_policy_arrows_and_values(self):
-        anims = []
-        for i in range(self.grid_size):
-            for j in range(self.grid_size):
-                qvals = self.q_table[i, j]
-                max_val = float(np.max(qvals))
-
-                val_color = GREEN if max_val > 0.01 else (RED if max_val < -0.01 else WHITE)
-                anims.append(self.q_val_displays[(i, j)].animate.set_value(max_val).set_color(val_color))
-
-                arrow = self.arrows.get((i, j), None)
-                if arrow is None:
-                    continue
-
-                best_act = self.greedy_for_display(qvals, prefer_action_idx=None)
-                self.arrow_directions[(i, j)] = best_act
-
-                new_vec = self.action_vecs[best_act]
-                target = Arrow(
-                    start=self.cells[(i, j)].get_center(),
-                    end=self.cells[(i, j)].get_center() + new_vec * 0.4,
-                    buff=0,
-                    color=GOLD,
-                    stroke_width=4,
-                    max_tip_length_to_length_ratio=0.4,
+        # 说明：输入层节点数量对应“状态的特征维度”。
+        # 这里用 2 个节点表示 (x, y) 坐标编码（便于直观演示）。
+        # 如果你想展示 one-hot（例如 3x3 网格=9 维），可以把 layers[0] 改成 9，
+        # 并相应调整 neuron_y_spacing / layer_x_spacing 以免太拥挤。
+        feature_labels = VGroup()
+        xy_names = ["x", "y"]
+        if len(layer_groups[0]) == 2:
+            for node, name in zip(layer_groups[0], xy_names):
+                feature_labels.add(
+                    Text(name, font_size=14, color=GREY_B).next_to(node, LEFT, buff=0.12)
                 )
 
-                if (i, j) not in self.visible_arrows:
-                    arrow.become(target)
-                    self.visible_arrows.add((i, j))
-                    anims.append(FadeIn(arrow))
-                else:
-                    anims.append(Transform(arrow, target))
+        labels = VGroup(input_label, output_label, feature_labels)
 
-        if anims:
-            self.play(LaggedStart(*anims, lag_ratio=0.003), run_time=1.2)
+        return net_group, layer_groups, edges, labels
 
-    # ---------- main (SARSA) ----------
-    def play_sarsa(self):
-        rewards = np.array(
-            [
-                [-0.04, -0.04, -0.04, -0.50, -1.00],
-                [-0.04, -1.00, -0.04, -1.00, -1.00],
-                [-0.04, -0.50, -0.04, -0.04, -0.04],
-                [-1.00, -1.00, -1.00, -1.00, -0.04],
-                [-1.00, -0.04, -0.04, -0.04, 1.00],
-            ]
-        )
-
-        goal_idx = np.argwhere(np.isclose(rewards, 1.0))
-        self.goal_pos = tuple(goal_idx[0]) if len(goal_idx) else (self.grid_size - 1, self.grid_size - 1)
-
-        self.optimal_steps = 8
-        self.q_table = np.zeros((self.grid_size, self.grid_size, 4))
-
-        # --- grid ---
+    # -------------------------------------------------------------------------
+    # GridWorld + Chart Builders
+    # -------------------------------------------------------------------------
+    def build_grid_world(self, rewards: np.ndarray):
         grid_group = VGroup()
-        self.cells = {}
-        self.arrows = {}
-        self.q_val_displays = {}
-        center_offset = (self.grid_size - 1) * self.grid_spacing / 2
+        cells = {}
+        label_group = VGroup()
 
         for i in range(self.grid_size):
             for j in range(self.grid_size):
-                pos = np.array(
-                    [
-                        j * self.grid_spacing - center_offset,
-                        (self.grid_size - 1 - i) * self.grid_spacing - center_offset,
-                        0,
-                    ]
-                )
+                pos = np.array([(j - 1) * self.grid_spacing, (1 - i) * self.grid_spacing, 0])
 
-                if np.isclose(rewards[i, j], 1.0):
-                    fill_col = TEAL_E
-                elif np.isclose(rewards[i, j], -1.0):
-                    fill_col = MAROON_E
-                elif np.isclose(rewards[i, j], -0.5):
-                    fill_col = ORANGE
-                else:
-                    fill_col = DARK_GRAY
+                color = BLACK
+                if rewards[i, j] == 1.0:
+                    color = GREEN_E
+                elif rewards[i, j] == -1.0:
+                    color = RED_E
+                elif rewards[i, j] == -0.5:
+                    color = ORANGE
 
                 cell = Square(
-                    side_length=self.cell_size, color=WHITE, fill_color=fill_col, fill_opacity=0.8
+                    side_length=self.cell_size,
+                    fill_color=color,
+                    fill_opacity=0.45,
+                    color=WHITE,
+                    stroke_width=2,
                 ).move_to(pos)
-                self.cells[(i, j)] = cell
 
-                txt = ""
-                if np.isclose(rewards[i, j], 1.0):
+                cells[(i, j)] = cell
+                grid_group.add(cell)
+
+                # Label
+                if rewards[i, j] == 1.0:
                     txt = "+1"
-                elif np.isclose(rewards[i, j], -1.0):
+                elif rewards[i, j] == -1.0:
                     txt = "-1"
-                elif np.isclose(rewards[i, j], -0.5):
-                    txt = "-0.5"
-                if txt:
-                    grid_group.add(Text(txt, font_size=16, color=WHITE).move_to(pos + UR * 0.3))
-
-                q_num = DecimalNumber(0.00, num_decimal_places=2, font_size=14, color=WHITE).move_to(
-                    pos + DOWN * 0.25
-                )
-                self.q_val_displays[(i, j)] = q_num
-
-                if (i, j) == self.goal_pos:
-                    self.arrows[(i, j)] = None
-                    grid_group.add(cell, q_num)
+                elif rewards[i, j] == -0.5:
+                    txt = "Mud"
                 else:
-                    init_vec = self.action_vecs[self.initial_action_idx]
-                    arrow = Arrow(
-                        start=pos,
-                        end=pos + init_vec * 0.4,
-                        buff=0,
-                        color=GOLD,
-                        stroke_width=4,
-                        max_tip_length_to_length_ratio=0.4,
-                    ).set_opacity(0)
-                    self.arrows[(i, j)] = arrow
-                    grid_group.add(cell, q_num, arrow)
+                    txt = ""
+                if txt:
+                    t = Text(txt, font_size=18, color=WHITE).move_to(pos).set_z_index(5)
+                    label_group.add(t)
 
-        grid_group.move_to(ORIGIN)
-        self.play(Create(grid_group))
-        self.play(grid_group.animate.scale(0.85).move_to(LEFT * 4.0))
+        # 标题小一点，避免遮挡
+        title = Text("GridWorld", font_size=24, color=WHITE).next_to(grid_group, UP, buff=0.25)
+        full = VGroup(grid_group, label_group, title)
+        return full, cells
 
-        # --- dashboard ---
-        self.create_dashboard()
-        self.update_epsilon_percent(animate=False)
+    def build_q_chart(self, bar_names=("U", "D", "L", "R")):
+        """右侧 Q 值柱状图（手工搭建，布局更稳）。"""
+        BAR_BG_H = 3.0
+        BAR_W = 0.42
+        COL_BUFF = 0.35
+        INNER_PAD = 0.06  # bar 离底部一点点距离
+        VALUE_TO_HEIGHT = 2.55  # val * VALUE_TO_HEIGHT -> height，保持与你原版接近
 
-        # --- agent ---
-        agent = Dot(color=BLUE, radius=0.2).move_to(self.cells[(0, 0)].get_center()).set_z_index(100)
+        bar_columns = VGroup()
+        bar_bgs = []
+        bars = []
+        action_labels = VGroup()
+
+        for name in bar_names:
+            bg = Rectangle(width=BAR_W, height=BAR_BG_H, stroke_color=GREY_B, stroke_width=1)
+            bar = Rectangle(width=BAR_W, height=0.05, fill_color=GREEN, fill_opacity=0.85, stroke_width=0)
+            # bar 初始放底部
+            bar.move_to(bg.get_bottom() + UP * (INNER_PAD + bar.height / 2))
+
+            lbl = Text(name, font_size=20, color=WHITE).next_to(bg, DOWN, buff=0.12)
+            col = VGroup(bg, bar, lbl)
+
+            bar_columns.add(col)
+            bar_bgs.append(bg)
+            bars.append(bar)
+            action_labels.add(lbl)
+
+        bar_columns.arrange(RIGHT, buff=COL_BUFF, aligned_edge=DOWN)
+
+        chart_title = Text("Q-Values", font_size=24, color=YELLOW).next_to(bar_columns, UP, buff=0.25)
+        chart = VGroup(chart_title, bar_columns)
+
+        # 返回更新所需的引用
+        meta = {
+            "BAR_BG_H": BAR_BG_H,
+            "BAR_W": BAR_W,
+            "INNER_PAD": INNER_PAD,
+            "VALUE_TO_HEIGHT": VALUE_TO_HEIGHT,
+            "bar_bgs": bar_bgs,
+            "bars": bars,
+            "bar_columns": bar_columns,
+        }
+        return chart, meta
+
+    def _place_three_panels(self, left_panel: Mobject, mid_panel: Mobject, right_panel: Mobject, buff=0.6):
+        """把三块内容放进同一帧：左 / 中 / 右，尽量不互相遮挡。"""
+        left_panel.to_edge(LEFT, buff=0.7)
+        right_panel.to_edge(RIGHT, buff=0.7)
+
+        # 安全边距：避免右侧/左侧的描边或注释被画面裁剪
+        frame_right = self.camera.frame_width / 2 - 0.15
+        if right_panel.get_right()[0] > frame_right:
+            right_panel.shift(LEFT * (right_panel.get_right()[0] - frame_right))
+
+        frame_left = -self.camera.frame_width / 2 + 0.15
+        if left_panel.get_left()[0] < frame_left:
+            left_panel.shift(RIGHT * (frame_left - left_panel.get_left()[0]))
+
+        # 垂直对齐
+        right_panel.move_to([right_panel.get_center()[0], left_panel.get_center()[1], 0])
+
+        # 中间区域可用宽度
+        left_x = left_panel.get_right()[0] + buff
+        right_x = right_panel.get_left()[0] - buff
+        mid_x = (left_x + right_x) / 2
+
+        mid_panel.move_to([mid_x, left_panel.get_center()[1] - 0.25, 0])
+
+        available_w = max(0.1, right_x - left_x)
+        if mid_panel.width > available_w:
+            mid_panel.scale(available_w / mid_panel.width)
+
+        # 再次对齐（scale 会变）
+        mid_panel.move_to([mid_x, left_panel.get_center()[1] - 0.25, 0])
+
+    # -------------------------------------------------------------------------
+    # Main DQN Process
+    # -------------------------------------------------------------------------
+    def play_dqn_process(self):
+        # --- A. 布局初始化 ---
+        rewards = np.array([
+            [-0.04, -0.5, -0.04],
+            [-0.04, -1.0,  -0.04],
+            [-0.04, -0.04,  1.0]
+        ])
+
+        grid_panel, cells = self.build_grid_world(rewards)
+
+        net_viz, layer_groups, edges, labels = self.create_neural_net()
+        net_group_all = VGroup(net_viz, labels)
+
+        chart_group, chart_meta = self.build_q_chart(bar_names=("U", "D", "L", "R"))
+
+        # 在柱子上方显示 Q 数值（每一步动态更新）
+        q_nums = []
+        q_num_group = VGroup()
+        for i, (bg, bar) in enumerate(zip(chart_meta["bar_bgs"], chart_meta["bars"])):
+            dn = DecimalNumber(
+                0.0,
+                num_decimal_places=2,
+                font_size=16,
+                color=WHITE
+            ).set_z_index(30)
+            # 初始位置：靠近柱子底部上方一点，避免一开始高度太小导致重叠
+            dn.move_to([bg.get_center()[0], bg.get_bottom()[1] + chart_meta["INNER_PAD"] + 0.25, 0])
+            q_nums.append(dn)
+            q_num_group.add(dn)
+        chart_group.add(q_num_group)
+
+        # 自适应放置三块面板
+        self._place_three_panels(grid_panel, net_group_all, chart_group, buff=0.7)
+
+        self.play(FadeIn(grid_panel), FadeIn(net_group_all), FadeIn(chart_group))
+
+        # --- B. 演示过程 ---
+        agent = Dot(color=BLUE_A, radius=0.15).set_z_index(20)
+        agent.move_to(cells[(0, 0)].get_center())
         self.play(FadeIn(agent))
 
-        path = TracedPath(agent.get_center, stroke_color=BLUE_A, stroke_width=2, dissipating_time=1.0)
+        steps = [
+            # ((r,c), action_idx, reward, q_values_list)
+            # Action: 0:U, 1:D, 2:L, 3:R
+            ((0, 0), 1, -0.04, [0.10, 0.20, 0.10, 0.15]),
+            ((1, 0), 1, -0.04, [0.20, 0.50, 0.10, 0.20]),
+            ((2, 0), 3, -0.04, [0.10, 0.10, 0.20, 0.60]),
+            ((2, 1), 3,  1.00, [0.10, 0.00, 0.30, 0.90]),
+        ]
+
+        bar_names = ["U", "D", "L", "R"]
+        bars = chart_meta["bars"]
+        bar_bgs = chart_meta["bar_bgs"]
+        VALUE_TO_HEIGHT = chart_meta["VALUE_TO_HEIGHT"]
+        INNER_PAD = chart_meta["INNER_PAD"]
+
+        for idx, (pos, action_idx, reward, q_vals) in enumerate(steps):
+            r, c = pos
+            current_cell = cells[(r, c)]
+
+            # 1) 当前 state 的高亮：用“覆盖框”，不改 cell stroke，避免网格消失
+            hl = SurroundingRectangle(current_cell, buff=0, color=YELLOW, stroke_width=4).set_z_index(15)
+            self.play(Create(hl), run_time=0.2)
+
+            # 2) 前向传播动画 (Forward Pass)
+            run_time = 0.9
+
+            # 输入层闪烁
+            self.play(*[n.animate.set_fill(YELLOW) for n in layer_groups[0]], run_time=0.18)
+
+            # 信号通过连线
+            edge_anims = [
+                ShowPassingFlash(e.copy().set_color(YELLOW), time_width=0.25)
+                for e in edges
+            ]
+            self.play(LaggedStart(*edge_anims, lag_ratio=0.08), run_time=run_time)
+
+            # 输出层闪烁
+            self.play(*[n.animate.set_fill(GREEN) for n in layer_groups[-1]], run_time=0.18)
+
+            # 恢复神经元颜色（保持 fill_opacity 不变）
+            restore = [n.animate.set_fill(BLACK) for n in layer_groups[0]] + \
+                      [n.animate.set_fill(BLACK) for n in layer_groups[-1]]
+            self.play(*restore, run_time=0.10)
+
+            # 3) 更新右侧柱状图
+            bar_anims = []
+            for b_idx, val in enumerate(q_vals):
+                target_h = max(0.02, float(val) * VALUE_TO_HEIGHT)
+                bg = bar_bgs[b_idx]
+
+                new_bar = Rectangle(
+                    width=bg.width,
+                    height=target_h,
+                    fill_color=GREEN,
+                    fill_opacity=0.85,
+                    stroke_width=0
+                )
+                new_bar.move_to(bg.get_bottom() + UP * (INNER_PAD + target_h / 2))
+
+                if b_idx == action_idx:
+                    # 选中动作：改成黄色更直观
+                    new_bar.set_fill(YELLOW, opacity=0.9)
+
+                bar_anims.append(Transform(bars[b_idx], new_bar))
+
+            # 同步更新每根柱子的数值标签
+            num_anims = []
+            for nb_idx, nb_val in enumerate(q_vals):
+                nb_bg = bar_bgs[nb_idx]
+                nb_h = max(0.02, float(nb_val) * VALUE_TO_HEIGHT)
+                nb_y = nb_bg.get_bottom()[1] + INNER_PAD + nb_h + 0.18
+                # 夹紧到柱状图背景范围内，避免越界
+                nb_y = min(nb_bg.get_top()[1] - 0.12, nb_y)
+                nb_y = max(nb_bg.get_bottom()[1] + 0.18, nb_y)
+
+                nb_pos = [nb_bg.get_center()[0], nb_y, 0]
+                nb_color = YELLOW if nb_idx == action_idx else WHITE
+
+                num_anims.append(q_nums[nb_idx].animate.set_value(float(nb_val)).move_to(nb_pos).set_color(nb_color))
+
+            self.play(*bar_anims, *num_anims, run_time=0.45)
+
+            # 4) 执行动作：移动 agent 到下一格（按 steps 给定的下一个 state）
+            if idx < len(steps) - 1:
+                next_pos = steps[idx + 1][0]
+            else:
+                next_pos = (2, 2)
+
+            self.play(agent.animate.move_to(cells[next_pos].get_center()), run_time=0.45)
+
+            # 5) 反向传播 (Backprop) + Reward 信息
+            info = Text(
+                f"a={bar_names[action_idx]}   r={reward:+.2f}",
+                font_size=22,
+                color=GOLD
+            ).to_corner(DR, buff=0.3).set_z_index(30)
+            self.play(FadeIn(info, shift=DOWN * 0.15), run_time=0.2)
+
+            # 目标 Q（演示用）
+            target_q_val = float(q_vals[action_idx]) + 0.2
+            bg = bar_bgs[action_idx]
+
+            # 目标虚线位置按 target_q 算
+            target_h = max(0.02, target_q_val * VALUE_TO_HEIGHT)
+            y = bg.get_bottom()[1] + INNER_PAD + target_h
+            target_line = DashedLine(
+                start=[bg.get_left()[0], y, 0],
+                end=[bg.get_right()[0], y, 0],
+                dash_length=0.08,
+                stroke_width=2,
+                color=RED
+            ).set_z_index(25)
+
+            target_label = Text("TD Target", color=RED, font_size=15)
+            target_val = DecimalNumber(target_q_val, num_decimal_places=2, font_size=15, color=RED)
+            target_text = VGroup(target_label, target_val).arrange(RIGHT, buff=0.12)
+
+            # 位置：TD Target 放在虚线上方、居中对齐当前柱子，避免与 Loss/柱子数值打架
+            target_text.next_to(target_line, UP, buff=0.14)
+            target_text.set_x(bg.get_center()[0])
+            top_limit = bg.get_top()[1] - 0.08
+            if target_text.get_top()[1] > top_limit:
+                target_text.shift(DOWN * (target_text.get_top()[1] - top_limit))
+            target_text.set_z_index(25)
+
+            # Loss（误差）：预测 Q 与 TD Target 的差
+            pred_h = max(0.02, float(q_vals[action_idx]) * VALUE_TO_HEIGHT)
+            pred_y = bg.get_bottom()[1] + INNER_PAD + pred_h
+            loss_seg = Line(
+                start=[bg.get_right()[0], pred_y, 0],
+                end=[bg.get_right()[0], y, 0],
+                color=RED,
+                stroke_width=4
+            ).set_z_index(25)
+
+            loss_val = abs(target_q_val - float(q_vals[action_idx]))
+            loss_label = Text("Loss", color=RED, font_size=15)
+            loss_num = DecimalNumber(loss_val, num_decimal_places=2, font_size=15, color=RED)
+            loss_text = VGroup(loss_label, loss_num).arrange(RIGHT, buff=0.12)
+
+            # 位置：Loss 放在误差线段侧边（默认左侧，贴边时自动改到右侧），并与 TD Target 错开
+            loss_text.next_to(loss_seg, LEFT, buff=0.14)
+            loss_text.set_y(loss_seg.get_center()[1])
+            if loss_text.get_left()[0] < bg.get_left()[0] + 0.02:
+                loss_text.next_to(loss_seg, RIGHT, buff=0.14)
+                loss_text.set_y(loss_seg.get_center()[1])
+
+            if abs(loss_text.get_center()[1] - target_text.get_center()[1]) < 0.22:
+                loss_text.shift(DOWN * 0.22)
+
+            # 防止出画面（右侧贴边时很常见）
+            frame_r = self.camera.frame_width / 2 - 0.12
+            frame_l = -self.camera.frame_width / 2 + 0.12
+            if loss_text.get_right()[0] > frame_r:
+                loss_text.shift(LEFT * (loss_text.get_right()[0] - frame_r))
+            if loss_text.get_left()[0] < frame_l:
+                loss_text.shift(RIGHT * (frame_l - loss_text.get_left()[0]))
+
+            loss_text.set_z_index(25)
+
+
+            self.play(
+                Create(target_line),
+                FadeIn(target_text),
+                Create(loss_seg),
+                FadeIn(loss_text),
+                run_time=0.3
+            )
+            self.wait(0.2)
+
+            # 回传闪烁（红色脉冲）
+            self.play(*[e.animate.set_stroke(RED, opacity=0.85) for e in edges], run_time=0.18)
+            self.play(*[e.animate.set_stroke(GREY_C, opacity=0.55) for e in edges], run_time=0.25)
+
+            self.play(
+                FadeOut(info),
+                FadeOut(target_line),
+                FadeOut(target_text),
+                FadeOut(loss_seg),
+                FadeOut(loss_text),
+                FadeOut(hl),
+                run_time=0.25
+            )
+
+        # --- C. 训练完成 ---
+        self.play(
+            FadeOut(agent),
+            FadeOut(chart_group),
+            FadeOut(net_group_all),
+            grid_panel.animate.scale(1.12).move_to(ORIGIN).shift(DOWN * 0.15),
+            run_time=0.6
+        )
+
+        final_text = Text("Training Complete: Optimal Policy", color=GREEN, font_size=32).to_edge(DOWN, buff=0.8)
+        self.play(Write(final_text))
+        self.wait(0.3)
+
+        # 快速跑一遍最优路径
+        agent.move_to(cells[(0, 0)].get_center())
+        self.play(FadeIn(agent))
+
+        path = TracedPath(agent.get_center, stroke_color=BLUE, stroke_width=4)
         self.add(path)
 
-        visual_episodes = 5
-        total_episodes = 25
-        max_steps_visual = 30
-        max_steps_backend = 50
-        max_steps_demo = 12
+        for wp in [(1, 0), (2, 0), (2, 1), (2, 2)]:
+            self.play(agent.animate.move_to(cells[wp].get_center()), run_time=0.35)
 
-        # --- visual training: ep 1-5 ---
-        for episode in range(1, visual_episodes + 1):
-            T = self.get_timing(episode)
-            self.play(self.ep_tracker.animate.set_value(episode), run_time=0.25)
-
-            curr_pos = (0, 0)
-            agent.move_to(self.cells[curr_pos].get_center())
-
-            path.clear_points()
-            path.start_new_path(agent.get_center())
-
-            steps = 0
-            ep_return = 0.0
-            self.step_tracker.set_value(0)
-
-            done = False
-
-            # SARSA: choose initial action A from S using ε-greedy
-            a, is_exploring, _ = self.epsilon_greedy(curr_pos[0], curr_pos[1], self.epsilon)
-
-            while not done and steps < max_steps_visual:
-                r, c = curr_pos
-
-                # color indicates how the CURRENT action was chosen
-                agent.set_color(PURPLE if is_exploring else BLUE)
-
-                next_pos, reward, hit_wall = self.get_step_result(curr_pos, a, rewards)
-
-                self.play(*self.update_compass(a, is_exploring), run_time=T["compass"])
-
-                if hit_wall:
-                    self.play(Indicate(agent, color=RED, scale_factor=1.2), run_time=T["hit"])
-                else:
-                    self.play(agent.animate.move_to(self.cells[next_pos].get_center()), run_time=T["move"])
-
-                if np.isclose(reward, -1.0):
-                    self.play(Flash(agent, color=RED, flash_radius=0.5, line_length=0.2), run_time=T["flash"])
-
-                # terminal check (goal)
-                terminal = False
-                if np.isclose(rewards[next_pos[0], next_pos[1]], 1.0) and next_pos != curr_pos:
-                    terminal = True
-                    done = True
-
-                # SARSA: choose next action A' from S' using SAME ε-greedy policy (if not terminal)
-                if terminal:
-                    a_next = 0
-                    is_exploring_next = False
-                    q_next = 0.0
-                else:
-                    a_next, is_exploring_next, _ = self.epsilon_greedy(next_pos[0], next_pos[1], self.epsilon)
-                    q_next = self.q_table[next_pos[0], next_pos[1], a_next]
-
-                # SARSA update
-                old_q = self.q_table[r, c, a]
-                new_q = old_q + self.alpha * (reward + self.gamma * q_next - old_q)
-                self.q_table[r, c, a] = new_q
-
-                ep_return += float(reward)
-                steps += 1
-                self.step_tracker.set_value(steps)
-
-                # update display arrow in (r,c) based on greedy of updated Q(s,*)
-                qvals = self.q_table[r, c]
-                max_q_val = float(np.max(qvals))
-                best_act_idx = self.greedy_for_display(qvals, prefer_action_idx=a)
-
-                self.arrow_directions[(r, c)] = best_act_idx
-                val_color = GREEN if max_q_val > 0.01 else (RED if max_q_val < -0.01 else WHITE)
-
-                arrow = self.arrows.get((r, c), None)
-                if arrow is None:
-                    self.play(
-                        self.q_val_displays[(r, c)].animate.set_value(max_q_val).set_color(val_color),
-                        run_time=T["q"],
-                    )
-                else:
-                    new_vec = self.action_vecs[best_act_idx]
-                    target_arrow = Arrow(
-                        start=self.cells[(r, c)].get_center(),
-                        end=self.cells[(r, c)].get_center() + new_vec * 0.4,
-                        buff=0,
-                        color=GOLD,
-                        stroke_width=4,
-                        max_tip_length_to_length_ratio=0.4,
-                    )
-
-                    if (r, c) not in self.visible_arrows:
-                        arrow.become(target_arrow)
-                        self.visible_arrows.add((r, c))
-                        self.play(
-                            self.q_val_displays[(r, c)].animate.set_value(max_q_val).set_color(val_color),
-                            FadeIn(arrow),
-                            run_time=T["q"],
-                        )
-                    else:
-                        self.play(
-                            self.q_val_displays[(r, c)].animate.set_value(max_q_val).set_color(val_color),
-                            Transform(arrow, target_arrow),
-                            run_time=T["q"],
-                        )
-
-                curr_pos = next_pos
-
-                if done:
-                    self.play(Flash(agent, color=TEAL, flash_radius=0.5, line_length=0.5), run_time=T["flash"])
-
-                # reset compass
-                self.play(*[arr.animate.restore() for arr in self.compass_arrows], run_time=T["reset"])
-
-                # advance SARSA: A <- A'
-                a = a_next
-                is_exploring = is_exploring_next
-
-            self.update_charts(episode, steps, ep_return, window=5, animate=True)
-
-            self.epsilon = max(0.05, self.epsilon * 0.85)
-            self.update_epsilon_percent(animate=True, run_time=0.18)
-
-        # --- backend training: ep 6-24 ---
-        fast_text = Text("Training rapidly...", font_size=24, color=YELLOW).move_to(LEFT * 3.0 + UP * 2.8)
-        self.play(FadeIn(fast_text))
-
-        self.epsilon = 0.05
-        self.update_epsilon_percent(animate=True, run_time=0.2)
-
-        for episode in range(visual_episodes + 1, total_episodes):  # 6..24
-            self.ep_tracker.set_value(episode)
-
-            curr_pos = (0, 0)
-            steps = 0
-            ep_return = 0.0
-            done = False
-
-            # initial action
-            a, _, _ = self.epsilon_greedy(curr_pos[0], curr_pos[1], self.epsilon)
-
-            while not done and steps < max_steps_backend:
-                r, c = curr_pos
-                next_pos, reward, _ = self.get_step_result(curr_pos, a, rewards)
-
-                terminal = False
-                if np.isclose(rewards[next_pos[0], next_pos[1]], 1.0) and next_pos != curr_pos:
-                    terminal = True
-                    done = True
-
-                if terminal:
-                    a_next = 0
-                    q_next = 0.0
-                else:
-                    a_next, _, _ = self.epsilon_greedy(next_pos[0], next_pos[1], self.epsilon)
-                    q_next = self.q_table[next_pos[0], next_pos[1], a_next]
-
-                old_q = self.q_table[r, c, a]
-                self.q_table[r, c, a] = old_q + self.alpha * (reward + self.gamma * q_next - old_q)
-
-                curr_pos = next_pos
-                a = a_next
-                steps += 1
-                ep_return += float(reward)
-
-            self.step_tracker.set_value(steps)
-            self.update_charts(episode, steps, ep_return, window=5, animate=False)
-            self.wait(0.04)
-
-        self.play(FadeOut(fast_text))
-
-        # refresh arrows and values
-        self.refresh_policy_arrows_and_values()
-
-        # --- final demo: Ep=25 greedy run ---
-        self.ep_tracker.set_value(total_episodes)
-        self.step_tracker.set_value(0)
-
-        self.remove(path)
-        agent.move_to(self.cells[(0, 0)].get_center()).set_color(GREEN)
-
-        new_path = TracedPath(agent.get_center, stroke_color=GREEN, stroke_width=4, dissipating_time=None).set_z_index(99)
-        self.add(new_path)
-
-        curr_pos = (0, 0)
-        done = False
-        steps = 0
-        ep_return = 0.0
-
-        while not done and steps < max_steps_demo:
-            r, c = curr_pos
-            action_idx = self.best_action_det(r, c)
-            next_pos, reward, hit = self.get_step_result(curr_pos, action_idx, rewards)
-
-            self.play(*self.update_compass(action_idx, False), run_time=0.10)
-
-            if hit:
-                self.play(Indicate(agent, color=RED), run_time=0.25)
-            else:
-                self.play(agent.animate.move_to(self.cells[next_pos].get_center()), run_time=0.35)
-                curr_pos = next_pos
-
-                if np.isclose(reward, 1.0):
-                    self.play(Flash(agent, color=TEAL), run_time=0.45)
-                    done = True
-                elif np.isclose(reward, -1.0):
-                    self.play(Flash(agent, color=RED, flash_radius=0.5, line_length=0.2), run_time=0.25)
-
-            steps += 1
-            ep_return += float(reward)
-            self.step_tracker.set_value(steps)
-
-            self.play(*[arr.animate.restore() for arr in self.compass_arrows], run_time=0.08)
-
-        self.wait(2)
+        self.play(Flash(agent, color=YELLOW))
+        self.wait(1.5)

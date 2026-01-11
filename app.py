@@ -1,7 +1,7 @@
 import streamlit as st
 # 导入我们刚刚写好的两个模块
 from web_app.animations import show_animation_library
-from web_app.experiments import run_cliff_walking_experiment
+from web_app.experiments import run_experiments_module
 
 # 1. 页面配置
 st.set_page_config(page_title="RL Education Platform", layout="wide", page_icon="🎓")
@@ -27,4 +27,4 @@ if app_mode == "🎥 Animation Library":
 
 elif app_mode == "🧪 RL Laboratory":
     # 调用 experiments.py 里的函数
-    run_cliff_walking_experiment()
+    run_experiments_module()
