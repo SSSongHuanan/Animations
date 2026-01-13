@@ -15,7 +15,7 @@ from notebooks import show_notebook_module
 
 st.set_page_config(page_title='RL Education Platform', layout='wide', page_icon='🎓')
 
-st.sidebar.header('🧭 Platform Navigation')
+st.sidebar.header('Platform Navigation')
 
 if 'app_mode' not in st.session_state:
     st.session_state['app_mode'] = '🏠 Home'

@@ -30,12 +30,12 @@ def _checkpoint(items):
 
 def show_notebook_module():
     _page_header(
-        "📖 Theoretical Notebooks",
+        "Theoretical Notebooks",
         "Bridge **math intuition** ↔ **implementable updates**. Choose a chapter and read it like a mini-lecture.",
     )
 
     # ---- Sidebar (simple + consistent) ----
-    st.sidebar.markdown("## 📚 Chapters")
+    st.sidebar.markdown("## Chapters")
     topic = st.sidebar.radio(
         "Select:",
         [
@@ -94,7 +94,7 @@ def render_dp_article():
 
     with left:
         tab_concept, tab_math, tab_code, tab_check = st.tabs(
-            ["📝 Concept", "➗ Math", "💻 Pseudocode", "✅ Checkpoint"]
+            ["Concept", "Math", "Pseudocode", "Checkpoint"]
         )
 
         with tab_concept:
@@ -172,7 +172,7 @@ def render_td_article():
 
     with left:
         tab_concept, tab_math, tab_code, tab_check = st.tabs(
-            ["📝 Concept", "➗ Math", "💻 Code Snippets", "✅ Checkpoint"]
+            ["Concept", "Math", "Code Snippets", "Checkpoint"]
         )
 
         with tab_concept:
@@ -256,7 +256,7 @@ def render_dqn_article():
 
     with left:
         tab_concept, tab_math, tab_code, tab_check = st.tabs(
-            ["📝 Concept", "➗ Math", "💻 Training Loop", "✅ Checkpoint"]
+            ["Concept", "Math", "Training Loop", "Checkpoint"]
         )
 
         with tab_concept:

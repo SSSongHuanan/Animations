@@ -3,8 +3,8 @@ from .cliff_walking import run as run_cliff
 from .frozen_lake import run as run_frozen
 
 def run_experiments_module():
-    st.title('🧪 Interactive RL Laboratory')
-    st.sidebar.markdown('## 🧪 Select Experiment')
+    st.title('Interactive RL Laboratory')
+    st.sidebar.markdown('## Select Experiment')
 
     EXP_MAP = {
         'Cliff Walking': run_cliff,
