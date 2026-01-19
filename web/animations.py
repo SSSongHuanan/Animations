@@ -259,7 +259,7 @@ def show_animation_library():
         if video_path:
             st.video(video_path)
         else:
-            st.error("❌ Video file not found.")
+            st.error("Video file not found.")
             st.info("Tip: check your Manim output folder under 'media/videos/'.")
             st.code(os.path.join("media", "videos", data["folder"]), language="text")
 
@@ -277,7 +277,7 @@ def show_animation_library():
             st.write("Symbols: s=state, a=action, r=reward, γ=discount, α=learning rate, ε=exploration")
 
     st.divider()
-    tab_intro, tab_derivation = st.tabs(["📝 Concept", "🧩 Derivation Notes"])
+    tab_intro, tab_derivation = st.tabs(["Concept", "Derivation Notes"])
 
     with tab_intro:
         st.markdown(data["description"])
