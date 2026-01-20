@@ -142,7 +142,7 @@ def train_agent(env, algorithm, episodes, alpha, gamma, epsilon, render_placehol
 # 2. Main Experiment Logic
 # ==========================================
 def run():
-    st.header("🏔️ Experiment: Cliff Walking")
+    st.header("🏔️Cliff Walking")
 
     # --- Intro ---
     col_desc, col_map = st.columns([1, 1.5], vertical_alignment="top")
@@ -179,7 +179,7 @@ def run():
             algorithm = st.radio("Algorithm", ["Q-Learning", "SARSA"], key="cw_algo", horizontal=False)
 
             st.markdown("##### Run")
-            start_btn = st.button("🚀 Train Agent", type="primary", use_container_width=True, key="cw_btn")
+            start_btn = st.button("Train Agent", type="primary", use_container_width=True, key="cw_btn")
 
         with right:
             st.markdown("##### Hyperparameters")

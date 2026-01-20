@@ -56,7 +56,7 @@ def render_quiz(quiz_key: str, questions: list[dict]):
             )
             st.markdown("---")
 
-        submitted = st.form_submit_button("✅ Submit Answers", type="primary")
+        submitted = st.form_submit_button("Submit Answers", type="primary")
 
     if not submitted:
         return

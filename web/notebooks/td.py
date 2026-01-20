@@ -76,7 +76,7 @@ def render():
 
     with left:
         tab_concept, tab_math, tab_code, tab_check = st.tabs(
-            ["Concept", "Math", "Code Snippets", "Checkpoint"]
+            ["Concept", "Math", "Pseudocode", "Checkpoint"]
         )
 
         with tab_concept:

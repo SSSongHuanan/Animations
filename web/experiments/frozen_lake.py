@@ -145,7 +145,7 @@ def train_agent(env, algorithm, episodes, alpha, gamma, epsilon, render_placehol
 # 2. Main Experiment Logic
 # ==========================================
 def run():
-    st.header("❄️ Experiment: Frozen Lake")
+    st.header("❄️ Frozen Lake")
 
     custom_map = ["SFFF", "FHFH", "FFFH", "HFFG"]
 
@@ -179,12 +179,12 @@ def run():
             st.markdown("##### Environment")
             is_slippery = st.checkbox("Enable Slippery Ice", value=True, key="fl_slippery")
             if is_slippery:
-                st.caption("⚠️ Stochastic (Hard) — random transitions + sparse reward.")
+                st.caption("Stochastic (Hard) — random transitions + sparse reward.")
             else:
-                st.caption("✅ Deterministic (Easy) — much easier to learn.")
+                st.caption("Deterministic (Easy) — much easier to learn.")
 
             st.markdown("##### Run")
-            start_btn = st.button("🚀 Train Agent", type="primary", use_container_width=True, key="fl_btn")
+            start_btn = st.button("Train Agent", type="primary", use_container_width=True, key="fl_btn")
 
         with right:
             st.markdown("##### Hyperparameters")
