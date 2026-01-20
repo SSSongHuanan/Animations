@@ -13,7 +13,7 @@ from animations import show_animation_library
 from experiments import run_experiments_module
 from notebooks import show_notebook_module
 
-st.set_page_config(page_title='RL Education Platform', layout='wide', page_icon='🎓')
+st.set_page_config(page_title='RL Education Platform', layout='wide', page_icon='')
 
 st.sidebar.header('Platform Navigation')
 
@@ -21,9 +21,10 @@ if 'app_mode' not in st.session_state:
     st.session_state['app_mode'] = 'Home'
 
 app_mode = st.sidebar.radio(
-    'Choose Module:',
-    ['Home', 'Animation Library', 'Theory Notebooks', 'RL Laboratory'],
+    label='',
+    options=['Home', 'Animation Library', 'Theory Notebooks', 'RL Laboratory'],
     key='app_mode',
+    label_visibility='collapsed',
 )
 
 st.sidebar.divider()
