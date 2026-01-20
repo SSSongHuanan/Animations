@@ -182,6 +182,13 @@ def run():
                 st.caption("Stochastic (Hard) — random transitions + sparse reward.")
             else:
                 st.caption("Deterministic (Easy) — much easier to learn.")
+            
+            st.markdown("##### Exploration")
+            use_eps_decay = st.checkbox(
+                "Use ε Decay (Recommended for slippery)",
+                value=is_slippery,
+                key="fl_eps_decay"
+            )
 
             st.markdown("##### Run")
             start_btn = st.button("Train Agent", type="primary", use_container_width=True, key="fl_btn")
@@ -195,7 +202,6 @@ def run():
                 alpha = st.slider("Learning Rate (α)", 0.01, 1.0, 0.10, key="fl_alpha")
 
             with c2:
-                use_eps_decay = st.checkbox("Use ε Decay (Recommended for slippery)", value=is_slippery, key="fl_eps_decay")
                 if use_eps_decay:
                     eps_start = st.slider("ε start", 0.1, 1.0, 1.0, key="fl_eps_start")
                     eps_min = st.slider("ε min", 0.0, 0.2, 0.05, key="fl_eps_min")

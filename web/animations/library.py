@@ -9,12 +9,12 @@ from .algorithms import get_animation_data
 def show_animation_library():
     """Render the Animation Library page."""
 
-    st.header("🎥 Algorithm Animations")
+    st.header("Algorithm Animations")
     st.caption("Manim-based videos that visualize how values and policies evolve during learning.")
 
     animation_data = get_animation_data()
 
-    st.sidebar.markdown("## 🎞️ Select a Video")
+    st.sidebar.markdown("## Select a Video")
     keys = list(animation_data.keys())
     selected_key = st.sidebar.radio("Algorithm", keys)
     data = animation_data[selected_key]
