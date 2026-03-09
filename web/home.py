@@ -14,25 +14,33 @@ def show_home():
 
     st.divider()
 
-    c1, c2, c3 = st.columns(3, gap='large')
+    # 将布局改为 4 列以容纳新模块
+    c1, c2, c3, c4 = st.columns(4, gap='medium')
 
     with c1:
         with st.container(border=True):
             st.markdown('### Animation Library')
-            st.markdown('- Watch *programmatic* Manim videos\n- See **value propagation** / **policy updates**\n- Follow the “concrete → abstract” narrative')
+            st.markdown('- Watch programmatic videos\n- See **value propagation**\n- Follow narratives')
             st.button('Open Animations', use_container_width=True, on_click=_set_mode, args=('Animation Library',))
 
     with c2:
         with st.container(border=True):
-            st.markdown('### Theory Notebooks')
-            st.markdown('- Mini-lectures (Concept → Math → Pseudocode)\n- Step-wise derivations\n- Self-check questions')
-            st.button('Open Notebooks', use_container_width=True, on_click=_set_mode, args=('Theory Notebooks',))
+            st.markdown('### Theory')
+            st.markdown('- Mini-lectures\n- Step-wise derivations\n- Self-check questions')
+            st.button('Open Notebooks', use_container_width=True, on_click=_set_mode, args=('Theory',))
 
     with c3:
         with st.container(border=True):
             st.markdown('### RL Laboratory')
-            st.markdown('- Run algorithms in classic Gym environments\n- Tune **α, γ, ε** in real time\n- Observe reward curves & learned policies')
+            st.markdown('- Run algorithms\n- Tune **α, γ, ε**\n- Observe reward curves')
             st.button('Open Laboratory', use_container_width=True, on_click=_set_mode, args=('RL Laboratory',))
+
+    # 新增的 Jupyter Notebooks 卡片
+    with c4:
+        with st.container(border=True):
+            st.markdown('### Jupyter Notebooks')
+            st.markdown('- View raw `.ipynb` files\n- Download code\n- Local interactive run')
+            st.button('Open Jupyter', use_container_width=True, on_click=_set_mode, args=('Jupyter Notebooks',))
 
     st.divider()
 

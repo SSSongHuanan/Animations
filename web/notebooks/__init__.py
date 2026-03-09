@@ -13,7 +13,7 @@ CHAPTERS = {
 
 def show_notebook_module():
     page_header(
-        "Theoretical Notebooks",
+        "Theorey",
         "Bridge **math intuition** ↔ **implementable updates**. Choose a chapter and read it like a mini-lecture.",
     )
 
