@@ -1,4 +1,4 @@
-# Python-generated files
+
 __pycache__/
 *.py[oc]
 build/
@@ -6,18 +6,13 @@ dist/
 wheels/
 *.egg-info
 .venv/
-# Virtual environments
+
 .venv
 
-# Media files
-# 1. 首先忽略 media 下的所有文件和文件夹（**代表所有层级）
 media/**
 
-# 2. 但是不忽略目录结构本身（为了让 Git 能够深入子目录去寻找我们想要的 mp4）
 !media/**/
 
-# 3. 允许追踪 media 目录下任意层级的 .mp4 文件
 !media/**/*.mp4
 
-# 4. 【最关键】再次强制拉黑 partial_movie_files 文件夹及其内部的所有内容
 media/**/partial_movie_files/
